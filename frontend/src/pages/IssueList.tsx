@@ -1,11 +1,19 @@
+import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { Link } from 'react-router-dom';
 import { useIssues } from '../hooks/useIssues';
 import { ApiError } from '../lib/apiClient';
+import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
 import './IssueList.css';
 
 export function IssueList(): ReactElement {
   const { data, isLoading, isError, error } = useIssues();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
+
+  function closeDrawer(): void {
+    setSelectedKey(null);
+    setIsDrawerExpanded(false);
+  }
 
   if (isLoading) return <p>Chargement des issues…</p>;
 
@@ -37,9 +45,11 @@ export function IssueList(): ReactElement {
         </thead>
         <tbody>
           {data.issues.map((issue) => (
-            <tr key={issue.key}>
+            <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
               <td>
-                <Link to={`/issues/${issue.key}`}>{issue.key}</Link>
+                <button type="button" className="issue-list__key-button">
+                  {issue.key}
+                </button>
               </td>
               <td>{issue.summary}</td>
               <td>{issue.status ?? '—'}</td>
@@ -48,6 +58,13 @@ export function IssueList(): ReactElement {
           ))}
         </tbody>
       </table>
+
+      <IssueDetailDrawer
+        issueKey={selectedKey}
+        isExpanded={isDrawerExpanded}
+        onClose={closeDrawer}
+        onToggleExpand={() => setIsDrawerExpanded((v) => !v)}
+      />
     </div>
   );
 }

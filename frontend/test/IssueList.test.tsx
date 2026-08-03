@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { IssueList } from '../src/pages/IssueList';
@@ -50,5 +50,36 @@ describe('IssueList', () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error('boom'));
     renderWithProviders(<IssueList />);
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+  });
+
+  it('opens the detail drawer with its fields when clicking an issue key', async () => {
+    vi.mocked(apiFetch).mockImplementation((path: string) => {
+      if (path === '/api/issues') {
+        return Promise.resolve({
+          jql: 'project = PROJ',
+          issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' }],
+        });
+      }
+      if (path === '/api/issues/PROJ-1') {
+        return Promise.resolve({
+          key: 'PROJ-1',
+          summary: 'Ticket un',
+          status: 'Open',
+          issueType: 'Task',
+          fields: [{ id: 'f1', name: 'Raison Sociale', value: 'Acme' }],
+          attachments: [],
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    renderWithProviders(<IssueList />);
+
+    const keyButton = await screen.findByRole('button', { name: 'PROJ-1' });
+    fireEvent.click(keyButton);
+
+    expect(await screen.findByRole('heading', { name: 'Ticket un' })).toBeInTheDocument();
+    expect(screen.getByText('Raison Sociale')).toBeInTheDocument();
+    expect(screen.getByText('Acme')).toBeInTheDocument();
   });
 });

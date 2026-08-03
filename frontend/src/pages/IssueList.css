@@ -41,6 +41,24 @@
   border-bottom: none;
 }
 
+.issue-list__row {
+  cursor: pointer;
+}
+
 .issue-list__table tbody tr:hover {
   background: var(--color-surface-sunken);
+}
+
+.issue-list__key-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.issue-list__key-button:hover {
+  text-decoration: underline;
 }

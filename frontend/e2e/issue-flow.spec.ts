@@ -61,24 +61,38 @@ test.describe('login → liste des issues → détail → téléchargement de pi
     });
   });
 
-  test('logs in, opens the issue list, views a ticket, and downloads its attachment', async ({ page }) => {
+  test('logs in, opens the issue list, opens a ticket in the drawer, and downloads its attachment', async ({
+    page,
+  }) => {
     await page.goto('/login');
     await page.getByLabel('Email').fill('user@example.com');
     await page.getByLabel('Mot de passe').fill('secret');
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
-    await expect(page.getByText('PROJ-1')).toBeVisible();
     await expect(page.getByText('project = PROJ ORDER BY created DESC')).toBeVisible();
 
-    await page.getByRole('link', { name: 'PROJ-1' }).click();
+    await page.getByRole('button', { name: 'PROJ-1' }).click();
 
-    await expect(page.getByRole('heading', { name: /PROJ-1/ })).toBeVisible();
-    await expect(page.getByText('Solution Référencée')).toBeVisible();
-    await expect(page.getByText('Solution X')).toBeVisible();
+    const drawer = page.getByRole('dialog');
+    await expect(drawer.getByRole('heading', { name: 'Cahier des charges initial' })).toBeVisible();
+
+    // Le champ personnalisé "Solution Référencée" ne correspond à aucun des
+    // onglets métier nommés : il doit apparaître sous l'onglet "Autres".
+    await drawer.getByRole('button', { name: 'Autres' }).click();
+    await expect(drawer.getByText('Solution Référencée')).toBeVisible();
+    await expect(drawer.getByText('Solution X')).toBeVisible();
 
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Télécharger' }).click();
+    await drawer.getByRole('button', { name: 'Télécharger' }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe('cahier-des-charges.pdf');
+
+    await drawer.getByRole('button', { name: 'Agrandir le panneau' }).click();
+    await expect(drawer.getByRole('button', { name: 'Réduire le panneau' })).toBeVisible();
+
+    await drawer.getByRole('button', { name: 'Fermer le panneau' }).click();
+    // aria-hidden retire le drawer de l'arbre d'accessibilité : on vérifie
+    // via un sélecteur CSS plutôt que getByRole, qui ne le trouverait plus.
+    await expect(page.locator('.drawer-overlay')).toHaveAttribute('aria-hidden', 'true');
   });
 });
