@@ -1,8 +1,25 @@
 # Plan d'implémentation — jira-issue-viewer
 
 Date : 2026-08-03
-Statut : en attente de confirmation avant démarrage de la Phase 0
+Statut : Phases 0 à 3 implémentées
 Référence : `02-specification.md` (spec validée)
+
+## Note d'exécution — Phase 3 (tests sans Postgres réel)
+
+L'environnement d'exécution de l'implémentation n'a pas d'accès à une base
+Postgres dédiée (le cluster système existant n'est accessible qu'en sudo, et
+le démon Docker n'est pas démarré). Les tests de routes de la Phase 3
+(`issues.routes.test.ts`, `admin.routes.test.ts`) utilisent donc un faux
+client Prisma en mémoire (`test/helpers/fakePrisma.ts`) injecté via
+`vi.mock('../src/lib/prisma')`, plutôt qu'une vraie base Postgres de test.
+Le `JiraClient` est mocké de la même façon pour ces tests (pas d'appel réseau).
+Ces tests couvrent bien la logique des routes (gating par rôle, validation,
+écriture des logs d'audit, masquage du PAT) via supertest + Express réel,
+mais ne valident pas le SQL généré par Prisma ni les contraintes réelles de
+la base. Une vraie suite d'intégration Postgres (`docker compose` + Prisma
+migrations réelles) reste à exécuter dès que l'environnement le permet —
+prévu naturellement en Phase 7 (`docker compose up --build`), qui exercera
+le chemin complet avec une vraie base.
 
 ## Patterns à reprendre (depuis referencement)
 
