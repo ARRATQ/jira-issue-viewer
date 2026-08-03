@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+frontend/dist/
+backend/dist/
+
+# Prisma
+backend/src/generated/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test / coverage
+coverage/
+playwright-report/
+test-results/
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.tsbuildinfo
