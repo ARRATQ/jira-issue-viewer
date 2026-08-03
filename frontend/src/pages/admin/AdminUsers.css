@@ -1,0 +1,103 @@
+.admin-users h1 {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-4);
+}
+
+.admin-users h2 {
+  font-size: var(--text-lg);
+  margin: var(--space-8) 0 var(--space-4);
+}
+
+.admin-users__error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.admin-users__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.admin-users__table th,
+.admin-users__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.admin-users__table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  background: var(--color-surface-sunken);
+}
+
+.admin-users__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-users__table select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.admin-users__table button {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.admin-users__table button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.admin-users__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 24rem;
+}
+
+.admin-users__form label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-top: var(--space-3);
+}
+
+.admin-users__form input,
+.admin-users__form select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.admin-users__form button[type='submit'] {
+  align-self: flex-start;
+  margin-top: var(--space-6);
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-users__form button[type='submit']:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.admin-users__form button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -7,7 +7,10 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { IssueList } from './pages/IssueList';
 import { IssueDetail } from './pages/IssueDetail';
-import { AdminHome } from './pages/AdminHome';
+import { AdminLayout } from './pages/admin/AdminLayout';
+import { AdminConfig } from './pages/admin/AdminConfig';
+import { AdminUsers } from './pages/admin/AdminUsers';
+import { AdminAuditLogs } from './pages/admin/AdminAuditLogs';
 
 export function App(): ReactElement {
   return (
@@ -28,10 +31,15 @@ export function App(): ReactElement {
               path="admin"
               element={
                 <ProtectedRoute requireAdmin>
-                  <AdminHome />
+                  <AdminLayout />
                 </ProtectedRoute>
               }
-            />
+            >
+              <Route index element={<Navigate to="config" replace />} />
+              <Route path="config" element={<AdminConfig />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="audit-logs" element={<AdminAuditLogs />} />
+            </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

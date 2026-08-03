@@ -1,0 +1,75 @@
+.admin-audit-logs h1 {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-4);
+}
+
+.admin-audit-logs__error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.admin-audit-logs label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-right: var(--space-2);
+}
+
+.admin-audit-logs select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  margin-bottom: var(--space-4);
+}
+
+.admin-audit-logs__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.admin-audit-logs__table th,
+.admin-audit-logs__table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.admin-audit-logs__table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  background: var(--color-surface-sunken);
+}
+
+.admin-audit-logs__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-audit-logs__pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.admin-audit-logs__pagination button {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.admin-audit-logs__pagination button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.admin-audit-logs__pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
