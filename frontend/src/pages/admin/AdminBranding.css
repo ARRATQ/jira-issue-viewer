@@ -16,12 +16,18 @@
   margin-top: var(--space-3);
 }
 
-.admin-branding input:not([type='file']) {
+.admin-branding input:not([type='file']),
+.admin-branding textarea {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text);
+  font-family: inherit;
+}
+
+.admin-branding textarea {
+  resize: vertical;
 }
 
 .admin-branding input[type='file'] {

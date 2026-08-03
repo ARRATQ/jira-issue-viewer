@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
+import { validatePasswordStrength } from '../lib/passwordPolicy';
 
 const prisma = new PrismaClient();
 
@@ -14,6 +15,7 @@ async function main() {
   const email = required('ADMIN_EMAIL');
   const password = required('ADMIN_PASSWORD');
   const name = process.env.ADMIN_NAME ?? 'Administrateur';
+  validatePasswordStrength(password);
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {

@@ -1,0 +1,67 @@
+.account-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 24rem;
+}
+
+.account-settings h1 {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-4);
+}
+
+.account-settings h2 {
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-2);
+}
+
+.account-settings label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-top: var(--space-2);
+}
+
+.account-settings input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.account-settings__hint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.account-settings__error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.account-settings__success {
+  color: oklch(55% 0.14 150);
+  font-size: var(--text-sm);
+}
+
+.account-settings button[type='submit'] {
+  align-self: flex-start;
+  margin-top: var(--space-6);
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-settings button[type='submit']:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.account-settings button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

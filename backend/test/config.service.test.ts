@@ -76,9 +76,20 @@ const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 describe('branding service', () => {
-  it('defaults the app name and returns no logo when nothing is configured', async () => {
+  it('defaults the app name, logo, and confidentiality notice when nothing is configured', async () => {
     const branding = await getBranding();
-    expect(branding).toEqual({ appName: 'jira-issue-viewer', logoDataUrl: null });
+    expect(branding.appName).toBe('jira-issue-viewer');
+    expect(branding.logoDataUrl).toBeNull();
+    expect(branding.confidentialityNotice.length).toBeGreaterThan(0);
+  });
+
+  it('updates the confidentiality notice and trims it', async () => {
+    await setBranding({ confidentialityNotice: '  Merci de respecter la confidentialité.  ' });
+    expect((await getBranding()).confidentialityNotice).toBe('Merci de respecter la confidentialité.');
+  });
+
+  it('rejects an empty confidentiality notice', async () => {
+    await expect(setBranding({ confidentialityNotice: '   ' })).rejects.toThrow(/vide/);
   });
 
   it('updates the app name and trims it', async () => {

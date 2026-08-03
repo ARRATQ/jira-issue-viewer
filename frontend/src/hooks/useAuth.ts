@@ -11,13 +11,16 @@ interface LoginResponse {
 export function useAuth() {
   const auth = useSyncExternalStore(subscribe, getAuth, getAuth);
 
-  const login = useCallback(async (email: string, password: string): Promise<void> => {
-    const data = await apiFetch<LoginResponse>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    setAuth({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string, acceptedConfidentiality: boolean): Promise<void> => {
+      const data = await apiFetch<LoginResponse>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password, acceptedConfidentiality }),
+      });
+      setAuth({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
+    },
+    [],
+  );
 
   const logout = useCallback((): void => {
     setAuth(null);

@@ -31,7 +31,7 @@ describe('useAuth', () => {
     const { result } = renderHook(() => useAuth());
 
     await act(async () => {
-      await result.current.login('a@example.com', 'secret');
+      await result.current.login('a@example.com', 'secret', true);
     });
 
     expect(result.current.isAuthenticated).toBe(true);
@@ -47,7 +47,7 @@ describe('useAuth', () => {
     const { result } = renderHook(() => useAuth());
 
     await act(async () => {
-      await result.current.login('a@example.com', 'secret');
+      await result.current.login('a@example.com', 'secret', true);
     });
     act(() => {
       result.current.logout();
@@ -63,7 +63,7 @@ describe('useAuth', () => {
 
     await expect(
       act(async () => {
-        await result.current.login('a@example.com', 'wrong');
+        await result.current.login('a@example.com', 'wrong', true);
       }),
     ).rejects.toThrow('Identifiants invalides');
 

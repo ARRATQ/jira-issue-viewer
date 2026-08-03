@@ -71,7 +71,7 @@ describe('users admin endpoints', () => {
     const res = await request(createApp())
       .post('/api/admin/users')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ email: 'new@example.com', name: 'New User', password: 'p@ssw0rd', role: 'USER' });
+      .send({ email: 'new@example.com', name: 'New User', password: 'P@ssw0rd123', role: 'USER' });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ email: 'new@example.com', role: 'USER', active: true });
@@ -89,11 +89,34 @@ describe('users admin endpoints', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects user creation with a password that does not meet the strength policy (400)', async () => {
+    const res = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'weak@example.com', name: 'Weak', password: 'weak' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/mot de passe/i);
+  });
+
+  it('rejects an admin password reset that does not meet the strength policy (400)', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'resetme@example.com', name: 'Reset Me', password: 'P@ssw0rd123' });
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ password: 'weak' });
+
+    expect(res.status).toBe(400);
+  });
+
   it('logs DEACTIVATE_USER (not UPDATE_USER) when active is set to false', async () => {
     const created = await request(createApp())
       .post('/api/admin/users')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ email: 'todeactivate@example.com', name: 'To Deactivate', password: 'p@ssw0rd' });
+      .send({ email: 'todeactivate@example.com', name: 'To Deactivate', password: 'P@ssw0rd123' });
 
     const res = await request(createApp())
       .patch(`/api/admin/users/${created.body.id}`)
@@ -112,7 +135,7 @@ describe('users admin endpoints', () => {
     const created = await request(createApp())
       .post('/api/admin/users')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ email: 'rename@example.com', name: 'Old Name', password: 'p@ssw0rd' });
+      .send({ email: 'rename@example.com', name: 'Old Name', password: 'P@ssw0rd123' });
 
     const res = await request(createApp())
       .patch(`/api/admin/users/${created.body.id}`)
@@ -132,7 +155,7 @@ describe('GET /api/admin/audit-logs', () => {
     await request(createApp())
       .post('/api/admin/users')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ email: 'a@example.com', name: 'A', password: 'p@ssw0rd' });
+      .send({ email: 'a@example.com', name: 'A', password: 'P@ssw0rd123' });
     await request(createApp())
       .put('/api/admin/config')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
@@ -168,7 +191,7 @@ describe('PUT /api/admin/branding', () => {
       .send({ appName: 'Maroc PME Portail', logoDataUrl: TINY_PNG_DATA_URL });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ appName: 'Maroc PME Portail', logoDataUrl: TINY_PNG_DATA_URL });
+    expect(res.body).toMatchObject({ appName: 'Maroc PME Portail', logoDataUrl: TINY_PNG_DATA_URL });
 
     const logs = fakePrisma.__state.auditLogs;
     expect(logs.find((l) => l.action === 'UPDATE_CONFIG' && l.entityType === 'branding')).toBeTruthy();

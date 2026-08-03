@@ -22,6 +22,7 @@ export function AdminBranding(): ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [appName, setAppName] = useState('');
+  const [confidentialityNotice, setConfidentialityNotice] = useState('');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   // undefined = pas de changement de logo ; null = suppression ; string = nouveau logo
   const [pendingLogo, setPendingLogo] = useState<string | null | undefined>(undefined);
@@ -31,6 +32,7 @@ export function AdminBranding(): ReactElement {
   useEffect(() => {
     if (!data) return;
     setAppName(data.appName);
+    setConfidentialityNotice(data.confidentialityNotice);
     setLogoPreview(data.logoDataUrl);
   }, [data]);
 
@@ -70,6 +72,7 @@ export function AdminBranding(): ReactElement {
     try {
       await updateBranding.mutateAsync({
         appName,
+        confidentialityNotice,
         ...(pendingLogo !== undefined ? { logoDataUrl: pendingLogo } : {}),
       });
       setPendingLogo(undefined);
@@ -103,6 +106,15 @@ export function AdminBranding(): ReactElement {
         onChange={(e) => void handleFileChange(e)}
       />
       <p className="admin-branding__hint">PNG, JPEG, WebP ou SVG, 500 Ko maximum.</p>
+
+      <label htmlFor="confidentialityNotice">Mention de confidentialité (affichée sur la page de connexion)</label>
+      <textarea
+        id="confidentialityNotice"
+        value={confidentialityNotice}
+        onChange={(e) => setConfidentialityNotice(e.target.value)}
+        rows={4}
+        required
+      />
 
       {localError && (
         <p role="alert" className="admin-branding__error">

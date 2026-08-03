@@ -8,6 +8,7 @@ export interface PublicConfig {
 export interface Branding {
   appName: string;
   logoDataUrl: string | null;
+  confidentialityNotice: string;
 }
 
 export interface AdminUser {

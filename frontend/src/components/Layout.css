@@ -62,6 +62,19 @@
   color: var(--color-text-muted);
 }
 
+.app-header__user a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.app-header__user a:hover,
+.app-header__user a.is-active {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
+
 .app-header__user button {
   background: none;
   border: 1px solid var(--color-border);

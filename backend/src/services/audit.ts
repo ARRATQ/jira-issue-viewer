@@ -11,7 +11,8 @@ export type AuditAction =
   | 'UPDATE_CONFIG'
   | 'CREATE_USER'
   | 'UPDATE_USER'
-  | 'DEACTIVATE_USER';
+  | 'DEACTIVATE_USER'
+  | 'CHANGE_PASSWORD';
 
 export interface LogActionParams {
   userId: string;

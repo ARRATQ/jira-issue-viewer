@@ -20,7 +20,7 @@ test.describe("parcours admin : édition du JQL puis vérification de la liste",
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null }),
+        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null, confidentialityNotice: 'Mention de confidentialité de test.' }),
       });
     });
 
@@ -67,6 +67,7 @@ test.describe("parcours admin : édition du JQL puis vérification de la liste",
     await page.goto('/login');
     await page.getByLabel('Email').fill('admin@example.com');
     await page.getByLabel('Mot de passe').fill('secret');
+    await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     await expect(page.getByText('OLD-1')).toBeVisible();
@@ -97,7 +98,7 @@ test.describe("parcours admin : édition du JQL puis vérification de la liste",
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null }),
+        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null, confidentialityNotice: 'Mention de confidentialité de test.' }),
       });
     });
 
@@ -130,6 +131,7 @@ test.describe("parcours admin : édition du JQL puis vérification de la liste",
     await page.goto('/login');
     await page.getByLabel('Email').fill('admin@example.com');
     await page.getByLabel('Mot de passe').fill('secret');
+    await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     await page.getByRole('button', { name: 'PROJ-1' }).click();

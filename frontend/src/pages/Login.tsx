@@ -13,6 +13,7 @@ export function Login(): ReactElement {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [acceptedConfidentiality, setAcceptedConfidentiality] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -26,7 +27,7 @@ export function Login(): ReactElement {
     setError(null);
     setIsSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, acceptedConfidentiality);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue');
     } finally {
@@ -61,13 +62,26 @@ export function Login(): ReactElement {
           required
         />
 
+        <div className="login-card__consent">
+          <p className="login-card__consent-text">{branding?.confidentialityNotice}</p>
+          <label className="login-card__consent-checkbox">
+            <input
+              type="checkbox"
+              checked={acceptedConfidentiality}
+              onChange={(e) => setAcceptedConfidentiality(e.target.checked)}
+              required
+            />
+            J&rsquo;ai lu et j&rsquo;accepte la mention de confidentialité ci-dessus.
+          </label>
+        </div>
+
         {error && (
           <p className="login-card__error" role="alert">
             {error}
           </p>
         )}
 
-        <button type="submit" disabled={isSubmitting}>
+        <button type="submit" disabled={isSubmitting || !acceptedConfidentiality}>
           {isSubmitting ? 'Connexion…' : 'Se connecter'}
         </button>
       </form>

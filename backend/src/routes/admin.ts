@@ -7,6 +7,7 @@ import { asyncHandler } from '../lib/asyncHandler';
 import { prisma } from '../lib/prisma';
 import { getBranding, getPublicConfig, setBranding, setConfigValue } from '../services/config';
 import { logAction } from '../services/audit';
+import { validatePasswordStrength } from '../lib/passwordPolicy';
 
 export const adminRouter = Router();
 
@@ -76,7 +77,7 @@ adminRouter.put(
 adminRouter.put(
   '/branding',
   asyncHandler(async (req, res) => {
-    const body = req.body as { appName?: string; logoDataUrl?: string | null };
+    const body = req.body as { appName?: string; logoDataUrl?: string | null; confidentialityNotice?: string };
 
     try {
       await setBranding(body);
@@ -123,6 +124,12 @@ adminRouter.post(
       res.status(400).json({ error: 'email, name et password sont requis' });
       return;
     }
+    try {
+      validatePasswordStrength(password);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Mot de passe invalide' });
+      return;
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
@@ -152,6 +159,15 @@ adminRouter.patch(
       active?: boolean;
       password?: string;
     };
+
+    if (password) {
+      try {
+        validatePasswordStrength(password);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Mot de passe invalide' });
+        return;
+      }
+    }
 
     const data: Prisma.UserUpdateInput = {};
     if (name !== undefined) data.name = name;

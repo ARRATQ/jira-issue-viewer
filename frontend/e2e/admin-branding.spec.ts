@@ -8,7 +8,11 @@ const TINY_PNG_DATA_URL =
 
 test.describe('parcours admin : personnalisation (nom + logo)', () => {
   test('changing the app name updates the header, login page, and browser tab title', async ({ page }) => {
-    let branding = { appName: 'jira-issue-viewer', logoDataUrl: null as string | null };
+    let branding = {
+      appName: 'jira-issue-viewer',
+      logoDataUrl: null as string | null,
+      confidentialityNotice: 'Mention de confidentialité de test.',
+    };
 
     await page.route('**/api/auth/login', async (route) => {
       await route.fulfill({
@@ -23,10 +27,15 @@ test.describe('parcours admin : personnalisation (nom + logo)', () => {
     });
 
     await page.route('**/api/admin/branding', async (route) => {
-      const body = route.request().postDataJSON() as { appName?: string; logoDataUrl?: string | null };
+      const body = route.request().postDataJSON() as {
+        appName?: string;
+        logoDataUrl?: string | null;
+        confidentialityNotice?: string;
+      };
       branding = {
         appName: body.appName ?? branding.appName,
         logoDataUrl: body.logoDataUrl !== undefined ? body.logoDataUrl : branding.logoDataUrl,
+        confidentialityNotice: body.confidentialityNotice ?? branding.confidentialityNotice,
       };
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(branding) });
     });
@@ -57,6 +66,7 @@ test.describe('parcours admin : personnalisation (nom + logo)', () => {
 
     await page.getByLabel('Email').fill('admin@example.com');
     await page.getByLabel('Mot de passe').fill('secret');
+    await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     await page.getByRole('link', { name: 'Administration' }).click();

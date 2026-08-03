@@ -20,7 +20,7 @@ test.describe('login → liste des issues → détail → téléchargement de pi
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null }),
+        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null, confidentialityNotice: 'Mention de confidentialité de test.' }),
       });
     });
 
@@ -75,6 +75,7 @@ test.describe('login → liste des issues → détail → téléchargement de pi
     await page.goto('/login');
     await page.getByLabel('Email').fill('user@example.com');
     await page.getByLabel('Mot de passe').fill('secret');
+    await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Se connecter' }).click();
 
     await expect(page.getByText('project = PROJ ORDER BY created DESC')).toBeVisible();

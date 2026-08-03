@@ -75,16 +75,20 @@ export async function getPublicConfig(): Promise<PublicConfig> {
 const DEFAULT_APP_NAME = 'jira-issue-viewer';
 const MAX_LOGO_BYTES = 512 * 1024;
 const LOGO_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,([A-Za-z0-9+/]+=*)$/;
+const DEFAULT_CONFIDENTIALITY_NOTICE =
+  'En vous connectant, vous vous engagez à respecter la confidentialité des informations Jira consultées via cette plateforme et à ne pas les divulguer à des tiers non autorisés.';
 
 export interface Branding {
   appName: string;
   logoDataUrl: string | null;
+  confidentialityNotice: string;
 }
 
 export async function getBranding(): Promise<Branding> {
   const appName = (await getConfigValue('app_name')) ?? DEFAULT_APP_NAME;
   const logoDataUrl = (await getConfigValue('app_logo')) || null;
-  return { appName, logoDataUrl };
+  const confidentialityNotice = (await getConfigValue('confidentiality_notice')) ?? DEFAULT_CONFIDENTIALITY_NOTICE;
+  return { appName, logoDataUrl, confidentialityNotice };
 }
 
 function assertValidLogoDataUrl(logoDataUrl: string): void {
@@ -102,6 +106,7 @@ function assertValidLogoDataUrl(logoDataUrl: string): void {
 export interface UpdateBrandingInput {
   appName?: string;
   logoDataUrl?: string | null;
+  confidentialityNotice?: string;
 }
 
 export async function setBranding(input: UpdateBrandingInput): Promise<void> {
@@ -117,5 +122,10 @@ export async function setBranding(input: UpdateBrandingInput): Promise<void> {
       assertValidLogoDataUrl(input.logoDataUrl);
       await setConfigValue('app_logo', input.logoDataUrl);
     }
+  }
+  if (input.confidentialityNotice !== undefined) {
+    const trimmed = input.confidentialityNotice.trim();
+    if (!trimmed) throw new Error('La mention de confidentialité ne peut pas être vide');
+    await setConfigValue('confidentiality_notice', trimmed);
   }
 }

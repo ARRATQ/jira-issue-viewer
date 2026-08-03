@@ -27,7 +27,9 @@ export function Layout(): ReactElement {
           )}
         </nav>
         <div className="app-header__user">
-          <span>{user?.name}</span>
+          <NavLink to="/account" className={({ isActive }) => (isActive ? 'is-active' : '')}>
+            {user?.name}
+          </NavLink>
           <button type="button" onClick={logout}>
             Se déconnecter
           </button>

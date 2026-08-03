@@ -32,6 +32,7 @@ export function useUpdateConfig() {
 export interface UpdateBrandingInput {
   appName?: string;
   logoDataUrl?: string | null;
+  confidentialityNotice?: string;
 }
 
 export function useUpdateBranding() {
