@@ -2,11 +2,14 @@ import { useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
 import { ApiError } from '../lib/apiClient';
+import { Footer } from '../components/Footer';
 import './Login.css';
 
 export function Login(): ReactElement {
   const { isAuthenticated, login } = useAuth();
+  const { data: branding } = useBranding();
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,7 +37,8 @@ export function Login(): ReactElement {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={(e) => void handleSubmit(e)}>
-        <h1>jira-issue-viewer</h1>
+        {branding?.logoDataUrl && <img src={branding.logoDataUrl} alt="" className="login-card__logo" />}
+        <h1>{branding?.appName ?? 'jira-issue-viewer'}</h1>
         <p className="login-card__subtitle">Connectez-vous pour consulter les issues Jira.</p>
 
         <label htmlFor="email">Email</label>
@@ -67,6 +71,7 @@ export function Login(): ReactElement {
           {isSubmitting ? 'Connexion…' : 'Se connecter'}
         </button>
       </form>
+      <Footer />
     </div>
   );
 }

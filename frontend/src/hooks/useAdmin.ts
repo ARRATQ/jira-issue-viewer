@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../lib/apiClient';
-import type { AdminUser, AuditLogsResponse, PublicConfig } from '../types/admin';
+import type { AdminUser, AuditLogsResponse, Branding, PublicConfig } from '../types/admin';
 
 export function useAdminConfig() {
   return useQuery({
@@ -25,6 +25,22 @@ export function useUpdateConfig() {
       queryClient.setQueryData(['admin', 'config'], data);
       // La liste des issues dépend du JQL global : elle doit être rafraîchie.
       void queryClient.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}
+
+export interface UpdateBrandingInput {
+  appName?: string;
+  logoDataUrl?: string | null;
+}
+
+export function useUpdateBranding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateBrandingInput) =>
+      apiFetch<Branding>('/api/admin/branding', { method: 'PUT', body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['branding'], data);
     },
   });
 }

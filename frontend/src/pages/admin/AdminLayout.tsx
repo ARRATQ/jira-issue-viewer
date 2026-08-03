@@ -9,6 +9,9 @@ export function AdminLayout(): ReactElement {
         <NavLink to="config" className={({ isActive }) => (isActive ? 'is-active' : '')}>
           Configuration
         </NavLink>
+        <NavLink to="branding" className={({ isActive }) => (isActive ? 'is-active' : '')}>
+          Personnalisation
+        </NavLink>
         <NavLink to="users" className={({ isActive }) => (isActive ? 'is-active' : '')}>
           Comptes
         </NavLink>

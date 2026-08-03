@@ -16,6 +16,14 @@ test.describe("parcours admin : édition du JQL puis vérification de la liste",
       });
     });
 
+    await page.route('**/api/branding', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null }),
+      });
+    });
+
     await page.route('**/api/admin/config', async (route) => {
       if (route.request().method() === 'PUT') {
         const body = route.request().postDataJSON() as { jql?: string };

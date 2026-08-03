@@ -14,9 +14,19 @@
 }
 
 .app-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-weight: 600;
   font-size: var(--text-lg);
   letter-spacing: -0.01em;
+  min-width: 0;
+}
+
+.app-header__logo {
+  height: 1.75rem;
+  width: auto;
+  flex-shrink: 0;
 }
 
 .app-header__nav {

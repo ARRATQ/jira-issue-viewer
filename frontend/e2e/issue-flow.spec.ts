@@ -16,6 +16,14 @@ test.describe('login → liste des issues → détail → téléchargement de pi
       });
     });
 
+    await page.route('**/api/branding', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ appName: 'jira-issue-viewer', logoDataUrl: null }),
+      });
+    });
+
     await page.route('**/api/issues', async (route) => {
       await route.fulfill({
         status: 200,

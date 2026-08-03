@@ -8,6 +8,7 @@ import { Login } from './pages/Login';
 import { IssueList } from './pages/IssueList';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminConfig } from './pages/admin/AdminConfig';
+import { AdminBranding } from './pages/admin/AdminBranding';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminAuditLogs } from './pages/admin/AdminAuditLogs';
 
@@ -35,6 +36,7 @@ export function App(): ReactElement {
             >
               <Route index element={<Navigate to="config" replace />} />
               <Route path="config" element={<AdminConfig />} />
+              <Route path="branding" element={<AdminBranding />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="audit-logs" element={<AdminAuditLogs />} />
             </Route>

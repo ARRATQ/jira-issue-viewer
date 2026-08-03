@@ -69,3 +69,53 @@ export async function getPublicConfig(): Promise<PublicConfig> {
   const patConfigured = Boolean(patRow) || Boolean(process.env.JIRA_PAT);
   return { jiraUrl, jql, tlsRejectUnauthorized, patConfigured };
 }
+
+// --- Personnalisation (nom de l'application + logo) ---
+
+const DEFAULT_APP_NAME = 'jira-issue-viewer';
+const MAX_LOGO_BYTES = 512 * 1024;
+const LOGO_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,([A-Za-z0-9+/]+=*)$/;
+
+export interface Branding {
+  appName: string;
+  logoDataUrl: string | null;
+}
+
+export async function getBranding(): Promise<Branding> {
+  const appName = (await getConfigValue('app_name')) ?? DEFAULT_APP_NAME;
+  const logoDataUrl = (await getConfigValue('app_logo')) || null;
+  return { appName, logoDataUrl };
+}
+
+function assertValidLogoDataUrl(logoDataUrl: string): void {
+  const match = LOGO_DATA_URL_RE.exec(logoDataUrl);
+  if (!match) {
+    throw new Error('Format de logo invalide (PNG, JPEG, WebP ou SVG attendu)');
+  }
+  const base64Body = match[2] ?? '';
+  const approxBytes = (base64Body.length * 3) / 4;
+  if (approxBytes > MAX_LOGO_BYTES) {
+    throw new Error('Le logo dépasse la taille maximale autorisée (500 Ko)');
+  }
+}
+
+export interface UpdateBrandingInput {
+  appName?: string;
+  logoDataUrl?: string | null;
+}
+
+export async function setBranding(input: UpdateBrandingInput): Promise<void> {
+  if (input.appName !== undefined) {
+    const trimmed = input.appName.trim();
+    if (!trimmed) throw new Error("Le nom de l'application ne peut pas être vide");
+    await setConfigValue('app_name', trimmed);
+  }
+  if (input.logoDataUrl !== undefined) {
+    if (input.logoDataUrl === null) {
+      await setConfigValue('app_logo', '');
+    } else {
+      assertValidLogoDataUrl(input.logoDataUrl);
+      await setConfigValue('app_logo', input.logoDataUrl);
+    }
+  }
+}

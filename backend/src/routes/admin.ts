@@ -5,7 +5,7 @@ import { authMiddleware } from '../middleware/auth';
 import { requireAdmin } from '../middleware/roles';
 import { asyncHandler } from '../lib/asyncHandler';
 import { prisma } from '../lib/prisma';
-import { getPublicConfig, setConfigValue } from '../services/config';
+import { getBranding, getPublicConfig, setBranding, setConfigValue } from '../services/config';
 import { logAction } from '../services/audit';
 
 export const adminRouter = Router();
@@ -68,6 +68,32 @@ adminRouter.put(
     });
 
     res.json(await getPublicConfig());
+  }),
+);
+
+// --- Personnalisation (nom de l'app + logo) ---
+
+adminRouter.put(
+  '/branding',
+  asyncHandler(async (req, res) => {
+    const body = req.body as { appName?: string; logoDataUrl?: string | null };
+
+    try {
+      await setBranding(body);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Requête invalide' });
+      return;
+    }
+
+    await logAction({
+      userId: req.user!.sub,
+      action: 'UPDATE_CONFIG',
+      entityType: 'branding',
+      details: { changedKeys: Object.keys(body) },
+      req,
+    });
+
+    res.json(await getBranding());
   }),
 );
 

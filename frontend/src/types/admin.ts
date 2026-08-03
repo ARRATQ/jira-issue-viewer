@@ -5,6 +5,11 @@ export interface PublicConfig {
   patConfigured: boolean;
 }
 
+export interface Branding {
+  appName: string;
+  logoDataUrl: string | null;
+}
+
 export interface AdminUser {
   id: string;
   email: string;

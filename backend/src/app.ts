@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { authRouter } from './routes/auth';
 import { issuesRouter } from './routes/issues';
 import { adminRouter } from './routes/admin';
+import { brandingRouter } from './routes/branding';
 import { JiraApiError } from './lib/jira';
 
 export function createApp() {
@@ -13,7 +14,9 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors({ origin: process.env.APP_ORIGIN ?? true, credentials: true }));
-  app.use(express.json());
+  // Limite relevée : le logo (personnalisation) est transmis en data URL
+  // base64 (jusqu'à ~500 Ko décodés, donc ~700 Ko encodés + marge JSON).
+  app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
 
   app.get('/health', (_req, res) => {
@@ -21,6 +24,7 @@ export function createApp() {
   });
 
   app.use('/api/auth', authRouter);
+  app.use('/api/branding', brandingRouter);
   app.use('/api/issues', issuesRouter);
   app.use('/api/admin', adminRouter);
 

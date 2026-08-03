@@ -1,15 +1,21 @@
 import type { ReactElement } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
+import { Footer } from './Footer';
 import './Layout.css';
 
 export function Layout(): ReactElement {
   const { user, logout } = useAuth();
+  const { data: branding } = useBranding();
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <span className="app-header__brand">jira-issue-viewer</span>
+        <div className="app-header__brand">
+          {branding?.logoDataUrl && <img src={branding.logoDataUrl} alt="" className="app-header__logo" />}
+          <span>{branding?.appName ?? 'jira-issue-viewer'}</span>
+        </div>
         <nav className="app-header__nav" aria-label="Navigation principale">
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}>
             Issues
@@ -30,6 +36,7 @@ export function Layout(): ReactElement {
       <main className="app-main">
         <Outlet />
       </main>
+      <Footer />
     </div>
   );
 }

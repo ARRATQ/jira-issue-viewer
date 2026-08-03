@@ -148,3 +148,39 @@ describe('GET /api/admin/audit-logs', () => {
     expect(res.body.items[0].action).toBe('CREATE_USER');
   });
 });
+
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+describe('PUT /api/admin/branding', () => {
+  it('rejects USER role (403)', async () => {
+    const res = await request(createApp())
+      .put('/api/admin/branding')
+      .set('Authorization', `Bearer ${tokenFor('USER', 'user-1')}`)
+      .send({ appName: 'Hack' });
+    expect(res.status).toBe(403);
+  });
+
+  it('updates the app name and logo, and logs UPDATE_CONFIG with entityType branding', async () => {
+    const res = await request(createApp())
+      .put('/api/admin/branding')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ appName: 'Maroc PME Portail', logoDataUrl: TINY_PNG_DATA_URL });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ appName: 'Maroc PME Portail', logoDataUrl: TINY_PNG_DATA_URL });
+
+    const logs = fakePrisma.__state.auditLogs;
+    expect(logs.find((l) => l.action === 'UPDATE_CONFIG' && l.entityType === 'branding')).toBeTruthy();
+  });
+
+  it('returns 400 for an invalid logo format without changing the stored branding', async () => {
+    const res = await request(createApp())
+      .put('/api/admin/branding')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ logoDataUrl: 'not-a-data-url' });
+
+    expect(res.status).toBe(400);
+    expect(fakePrisma.__state.configs.get('app_logo')).toBeUndefined();
+  });
+});

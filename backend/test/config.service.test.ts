@@ -17,9 +17,8 @@ beforeEach(() => {
   delete process.env.JIRA_TLS_REJECT_UNAUTHORIZED;
 });
 
-const { setConfigValue, getConfigValue, getPublicConfig, getJiraClientConfig, getJql } = await import(
-  '../src/services/config'
-);
+const { setConfigValue, getConfigValue, getPublicConfig, getJiraClientConfig, getJql, getBranding, setBranding } =
+  await import('../src/services/config');
 
 describe('config service', () => {
   it('stores encrypted values so the raw DB row differs from the plain value', async () => {
@@ -70,5 +69,47 @@ describe('config service', () => {
 
     await setConfigValue('jira_tls_reject_unauthorized', 'false');
     expect((await getJiraClientConfig()).tlsRejectUnauthorized).toBe(false);
+  });
+});
+
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+describe('branding service', () => {
+  it('defaults the app name and returns no logo when nothing is configured', async () => {
+    const branding = await getBranding();
+    expect(branding).toEqual({ appName: 'jira-issue-viewer', logoDataUrl: null });
+  });
+
+  it('updates the app name and trims it', async () => {
+    await setBranding({ appName: '  Maroc PME Portail  ' });
+    expect((await getBranding()).appName).toBe('Maroc PME Portail');
+  });
+
+  it('rejects an empty app name', async () => {
+    await expect(setBranding({ appName: '   ' })).rejects.toThrow(/vide/);
+  });
+
+  it('stores and returns a valid logo data URL', async () => {
+    await setBranding({ logoDataUrl: TINY_PNG_DATA_URL });
+    expect((await getBranding()).logoDataUrl).toBe(TINY_PNG_DATA_URL);
+  });
+
+  it('rejects a logo that is not a data URL of an allowed image type', async () => {
+    await expect(setBranding({ logoDataUrl: 'data:text/plain;base64,aGVsbG8=' })).rejects.toThrow(/invalide/);
+    await expect(setBranding({ logoDataUrl: 'https://example.com/logo.png' })).rejects.toThrow(/invalide/);
+  });
+
+  it('rejects a logo larger than 500 KB', async () => {
+    const oversizedBase64 = 'A'.repeat(Math.ceil((513 * 1024 * 4) / 3));
+    await expect(setBranding({ logoDataUrl: `data:image/png;base64,${oversizedBase64}` })).rejects.toThrow(
+      /dépasse la taille/,
+    );
+  });
+
+  it('clears the logo when logoDataUrl is set to null', async () => {
+    await setBranding({ logoDataUrl: TINY_PNG_DATA_URL });
+    await setBranding({ logoDataUrl: null });
+    expect((await getBranding()).logoDataUrl).toBeNull();
   });
 });
