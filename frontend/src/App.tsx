@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { IssueList } from './pages/IssueList';
+import { IssueDetail } from './pages/IssueDetail';
 import { AdminHome } from './pages/AdminHome';
 
 export function App(): ReactElement {
@@ -22,6 +23,7 @@ export function App(): ReactElement {
             }
           >
             <Route index element={<IssueList />} />
+            <Route path="issues/:key" element={<IssueDetail />} />
             <Route
               path="admin"
               element={

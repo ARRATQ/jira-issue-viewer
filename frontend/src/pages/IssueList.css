@@ -1,0 +1,46 @@
+.issue-list__jql {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.issue-list__jql code {
+  background: var(--color-surface-sunken);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.issue-list__error {
+  color: var(--color-danger);
+}
+
+.issue-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.issue-list__table th,
+.issue-list__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.issue-list__table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  background: var(--color-surface-sunken);
+}
+
+.issue-list__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.issue-list__table tbody tr:hover {
+  background: var(--color-surface-sunken);
+}
