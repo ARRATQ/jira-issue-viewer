@@ -26,6 +26,9 @@
 .login-card__logo {
   height: 2.5rem;
   width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  align-self: center;
   margin-bottom: var(--space-2);
 }
 
@@ -33,12 +36,14 @@
   margin: 0 0 var(--space-1);
   font-size: var(--text-xl);
   letter-spacing: -0.01em;
+  text-align: center;
 }
 
 .login-card__subtitle {
   margin: 0 0 var(--space-4);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+  text-align: center;
 }
 
 .login-card label {
