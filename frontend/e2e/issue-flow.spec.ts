@@ -46,7 +46,7 @@ test.describe('login → liste des issues → détail → téléchargement de pi
           summary: 'Cahier des charges initial',
           status: 'Open',
           issueType: 'Task',
-          fields: [{ id: 'customfield_10010', name: 'Solution Référencée', value: 'Solution X' }],
+          fields: [{ id: 'customfield_10010', name: 'Raison Sociale', value: 'Solution X' }],
           attachments: [
             {
               id: '1001',
@@ -84,11 +84,12 @@ test.describe('login → liste des issues → détail → téléchargement de pi
     const drawer = page.getByRole('dialog');
     await expect(drawer.getByRole('heading', { name: 'Cahier des charges initial' })).toBeVisible();
 
-    // Le champ personnalisé "Solution Référencée" ne correspond à aucun des
-    // onglets métier nommés : il doit apparaître sous l'onglet "Autres".
-    await drawer.getByRole('button', { name: 'Autres' }).click();
-    await expect(drawer.getByText('Solution Référencée')).toBeVisible();
+    // "Raison Sociale" fait partie de l'onglet "Infos", actif par défaut.
+    await expect(drawer.getByText('Raison Sociale')).toBeVisible();
     await expect(drawer.getByText('Solution X')).toBeVisible();
+
+    // Rôle USER : l'onglet "Autres" (champs non catégorisés) doit être masqué.
+    await expect(drawer.getByRole('button', { name: 'Autres' })).not.toBeVisible();
 
     const downloadPromise = page.waitForEvent('download');
     await drawer.getByRole('button', { name: 'Télécharger' }).click();

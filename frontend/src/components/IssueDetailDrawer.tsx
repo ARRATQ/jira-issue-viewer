@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Drawer } from './Drawer';
 import { AttachmentItem } from './AttachmentItem';
+import { useAuth } from '../hooks/useAuth';
 import { useIssue } from '../hooks/useIssues';
 import { ApiError } from '../lib/apiClient';
 import { groupIssueFields } from '../lib/issueFieldGroups';
@@ -16,8 +17,14 @@ interface IssueDetailDrawerProps {
 }
 
 export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpand }: IssueDetailDrawerProps): ReactElement {
+  const { user } = useAuth();
   const { data, isLoading, isError, error } = useIssue(issueKey ?? '');
-  const groups = useMemo(() => groupIssueFields(data?.fields ?? []), [data?.fields]);
+  const groups = useMemo(() => {
+    const allGroups = groupIssueFields(data?.fields ?? []);
+    // L'onglet "Autres" (champs hors des 5 onglets métier) est réservé aux
+    // admins ; les users ne voient que la vue métier organisée.
+    return user?.role === 'ADMIN' ? allGroups : allGroups.filter((g) => g.id !== 'autres');
+  }, [data?.fields, user?.role]);
   const [activeTab, setActiveTab] = useState(groups[0]?.id ?? '');
 
   const currentTabId = groups.some((g) => g.id === activeTab) ? activeTab : (groups[0]?.id ?? '');
