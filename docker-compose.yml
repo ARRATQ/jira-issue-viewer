@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: jiv-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-jira_issue_viewer}
+      POSTGRES_USER: ${DB_USER:-jivuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - jiv-db-data:/var/lib/postgresql/data
+    networks:
+      - jiv-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-jivuser} -d ${DB_NAME:-jira_issue_viewer}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: jiv-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-jivuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-jira_issue_viewer}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JIRA_URL=${JIRA_URL:-}
+      - JIRA_PAT=${JIRA_PAT:-}
+      - JIRA_JQL=${JIRA_JQL:-}
+      - JIRA_TLS_REJECT_UNAUTHORIZED=${JIRA_TLS_REJECT_UNAUTHORIZED:-false}
+      - APP_ORIGIN=${APP_ORIGIN:-http://localhost:8080}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ADMIN_NAME=${ADMIN_NAME:-Administrateur}
+      - PORT=3001
+      - NODE_ENV=${NODE_ENV:-production}
+    networks:
+      - jiv-net
+    ports:
+      - '${BACKEND_PORT:-3001}:3001'
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ''
+    container_name: jiv-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - jiv-net
+    ports:
+      - '${APP_PORT:-8080}:80'
+
+volumes:
+  jiv-db-data:
+
+networks:
+  jiv-net:
+    driver: bridge
