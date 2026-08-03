@@ -1,0 +1,10 @@
+[
+  { "id": "summary", "name": "Summary" },
+  { "id": "status", "name": "Status" },
+  { "id": "issuetype", "name": "Issue Type" },
+  { "id": "assignee", "name": "Assignee" },
+  { "id": "created", "name": "Created" },
+  { "id": "attachment", "name": "Attachment" },
+  { "id": "customfield_10010", "name": "Solution Référencée" },
+  { "id": "customfield_10011", "name": "Secteur" }
+]
