@@ -21,9 +21,11 @@ export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpan
   const { data, isLoading, isError, error } = useIssue(issueKey ?? '');
   const groups = useMemo(() => {
     const allGroups = groupIssueFields(data?.fields ?? []);
-    // L'onglet "Autres" (champs hors des 5 onglets métier) est réservé aux
-    // admins ; les users ne voient que la vue métier organisée.
-    return user?.role === 'ADMIN' ? allGroups : allGroups.filter((g) => g.id !== 'autres');
+    if (user?.role === 'ADMIN') return allGroups;
+    // Réservés aux admins : "Autres" (champs hors des 5 onglets métier) et
+    // "Réalisation et prévision" — les users voient le reste de la vue métier.
+    const hiddenForUser = new Set(['autres', 'realisation']);
+    return allGroups.filter((g) => !hiddenForUser.has(g.id));
   }, [data?.fields, user?.role]);
   const [activeTab, setActiveTab] = useState(groups[0]?.id ?? '');
 

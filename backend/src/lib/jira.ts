@@ -38,14 +38,22 @@ export interface JiraAttachmentMeta {
   contentUrl: string;
 }
 
-export interface JiraIssueSummary {
+export interface JiraIssueBase {
   key: string;
   summary: string;
   status: string | null;
   issueType: string | null;
 }
 
-export interface JiraIssueDetail extends JiraIssueSummary {
+// Vue liste : quelques champs métier supplémentaires affichés en colonnes.
+export interface JiraIssueSummary extends JiraIssueBase {
+  profilExport: string | null;
+  offreExport: string | null;
+}
+
+// Vue détail : tous les champs renseignés (dont Profil/Offre Export s'ils
+// existent) sont déjà dans `fields`, pas besoin de les dupliquer à part.
+export interface JiraIssueDetail extends JiraIssueBase {
   fields: JiraField[];
   attachments: JiraAttachmentMeta[];
 }
@@ -92,6 +100,37 @@ export function extractPopulatedFields(
   result.sort((a, b) => a.name.localeCompare(b.name));
   return result;
 }
+
+function normalizeFieldName(name: string): string {
+  return name
+    .trim()
+    .replace(/\s*:\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+// Résout l'id d'un champ (customfield_xxxxx ou champ standard) à partir de
+// son nom lisible, tel que renvoyé par /rest/api/2/field — nécessaire pour
+// demander des customfields à la recherche JQL, qui ne les accepte que par id.
+function findFieldIdByName(fieldsMeta: Map<string, string>, wantedName: string): string | null {
+  const normalizedWanted = normalizeFieldName(wantedName);
+  for (const [id, name] of fieldsMeta) {
+    if (normalizeFieldName(name) === normalizedWanted) return id;
+  }
+  return null;
+}
+
+// Champs additionnels affichés en colonnes dans la liste des issues, en plus
+// des champs standard (résumé/statut/type).
+const LIST_EXTRA_FIELDS = {
+  profilExport: 'Profil Export',
+  offreExport: 'Offre Export',
+} as const;
+
+const SEARCH_PAGE_SIZE = 100;
+// Garde-fou : évite de boucler indéfiniment sur un JQL retournant un très
+// grand nombre de résultats.
+const SEARCH_MAX_ISSUES = 500;
 
 function mapAttachments(raw: unknown): JiraAttachmentMeta[] {
   if (!Array.isArray(raw)) return [];
@@ -159,18 +198,47 @@ export class JiraClient {
     return new Map(data.map((f) => [f.id, f.name]));
   }
 
-  async searchIssues(jql: string, maxResults = 50): Promise<JiraIssueSummary[]> {
-    const fields = 'summary,status,issuetype';
-    const query = new URLSearchParams({ jql, maxResults: String(maxResults), fields });
-    const data = (await this.request(`/rest/api/2/search?${query.toString()}`)) as {
-      issues: Array<{ key: string; fields: Record<string, unknown> }>;
-    };
-    return data.issues.map((issue) => ({
-      key: issue.key,
-      summary: String(issue.fields.summary ?? ''),
-      status: extractFieldValue(issue.fields.status) as string | null,
-      issueType: extractFieldValue(issue.fields.issuetype) as string | null,
-    }));
+  // Récupère TOUTES les issues correspondant au JQL (pagine automatiquement
+  // au-delà de la limite par page de l'API Jira, jusqu'à SEARCH_MAX_ISSUES),
+  // avec les champs standard plus les champs métier affichés dans la liste.
+  async searchIssues(jql: string): Promise<JiraIssueSummary[]> {
+    const fieldsMeta = await this.getFieldsMeta();
+    const profilExportId = findFieldIdByName(fieldsMeta, LIST_EXTRA_FIELDS.profilExport);
+    const offreExportId = findFieldIdByName(fieldsMeta, LIST_EXTRA_FIELDS.offreExport);
+    const extraIds = [profilExportId, offreExportId].filter((id): id is string => id !== null);
+    const fields = ['summary', 'status', 'issuetype', ...extraIds].join(',');
+
+    const issues: JiraIssueSummary[] = [];
+    let startAt = 0;
+
+    for (;;) {
+      const query = new URLSearchParams({
+        jql,
+        startAt: String(startAt),
+        maxResults: String(SEARCH_PAGE_SIZE),
+        fields,
+      });
+      const data = (await this.request(`/rest/api/2/search?${query.toString()}`)) as {
+        issues: Array<{ key: string; fields: Record<string, unknown> }>;
+        total: number;
+      };
+
+      for (const issue of data.issues) {
+        issues.push({
+          key: issue.key,
+          summary: String(issue.fields.summary ?? ''),
+          status: extractFieldValue(issue.fields.status) as string | null,
+          issueType: extractFieldValue(issue.fields.issuetype) as string | null,
+          profilExport: profilExportId ? (extractFieldValue(issue.fields[profilExportId]) as string | null) : null,
+          offreExport: offreExportId ? (extractFieldValue(issue.fields[offreExportId]) as string | null) : null,
+        });
+      }
+
+      startAt += SEARCH_PAGE_SIZE;
+      if (data.issues.length === 0 || issues.length >= data.total || issues.length >= SEARCH_MAX_ISSUES) break;
+    }
+
+    return issues;
   }
 
   async getIssue(key: string, fieldsMeta: Map<string, string>): Promise<JiraIssueDetail> {

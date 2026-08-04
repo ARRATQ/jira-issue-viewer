@@ -20,6 +20,7 @@ const ISSUE_DETAIL = {
   fields: [
     { id: 'f1', name: 'Raison Sociale', value: 'Acme' },
     { id: 'f2', name: 'customfield_99999', value: 'mystery' },
+    { id: 'f3', name: 'Pays cibles', value: 'France' },
   ],
   attachments: [],
 };
@@ -66,5 +67,37 @@ describe('IssueDetailDrawer — "Autres" tab visibility by role', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Autres' }));
 
     expect(await screen.findByText('customfield_99999')).toBeInTheDocument();
+  });
+});
+
+describe('IssueDetailDrawer — "Réalisation et prévision" tab visibility by role', () => {
+  it('hides the tab (and its fields) for the USER role', async () => {
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'u1', email: 'u@example.com', name: 'U', role: 'USER' },
+    });
+
+    renderDrawer();
+
+    await screen.findByText('Raison Sociale');
+    expect(screen.queryByRole('button', { name: 'Réalisation et prévision' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Pays cibles')).not.toBeInTheDocument();
+  });
+
+  it('shows the tab with its fields for the ADMIN role', async () => {
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'a1', email: 'a@example.com', name: 'A', role: 'ADMIN' },
+    });
+
+    renderDrawer();
+    await screen.findByText('Raison Sociale');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Réalisation et prévision' }));
+
+    expect(await screen.findByText('Pays cibles')).toBeInTheDocument();
+    expect(screen.getByText('France')).toBeInTheDocument();
   });
 });

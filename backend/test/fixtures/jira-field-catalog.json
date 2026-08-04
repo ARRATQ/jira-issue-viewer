@@ -6,5 +6,7 @@
   { "id": "created", "name": "Created" },
   { "id": "attachment", "name": "Attachment" },
   { "id": "customfield_10010", "name": "Solution Référencée" },
-  { "id": "customfield_10011", "name": "Secteur" }
+  { "id": "customfield_10011", "name": "Secteur" },
+  { "id": "customfield_10020", "name": "Profil Export" },
+  { "id": "customfield_10021", "name": "Offre Export" }
 ]

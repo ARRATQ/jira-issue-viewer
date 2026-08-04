@@ -50,7 +50,14 @@ describe('GET /api/issues', () => {
 
   it('returns the issue list and logs VIEW_LIST', async () => {
     fakeJiraClient.searchIssues.mockResolvedValue([
-      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' },
+      {
+        key: 'PROJ-1',
+        summary: 'Ticket un',
+        status: 'Open',
+        issueType: 'Task',
+        profilExport: 'Débutant',
+        offreExport: 'Premium',
+      },
     ]);
 
     const res = await request(createApp())
@@ -60,7 +67,16 @@ describe('GET /api/issues', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       jql: 'project = PROJ',
-      issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' }],
+      issues: [
+        {
+          key: 'PROJ-1',
+          summary: 'Ticket un',
+          status: 'Open',
+          issueType: 'Task',
+          profilExport: 'Débutant',
+          offreExport: 'Premium',
+        },
+      ],
     });
 
     const logs = fakePrisma.__state.auditLogs;

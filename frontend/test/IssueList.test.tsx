@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { IssueList } from '../src/pages/IssueList';
@@ -81,5 +81,41 @@ describe('IssueList', () => {
     expect(await screen.findByRole('heading', { name: 'Ticket un' })).toBeInTheDocument();
     expect(screen.getByText('Raison Sociale')).toBeInTheDocument();
     expect(screen.getByText('Acme')).toBeInTheDocument();
+  });
+
+  it('shows Profil Export / Offre Export columns and filters the table by them', async () => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      jql: 'project = PROJ',
+      issues: [
+        {
+          key: 'PROJ-1',
+          summary: 'Ticket un',
+          status: 'Open',
+          issueType: 'Task',
+          profilExport: 'Débutant',
+          offreExport: 'Premium',
+        },
+        {
+          key: 'PROJ-2',
+          summary: 'Ticket deux',
+          status: 'Done',
+          issueType: 'Task',
+          profilExport: 'Avancé',
+          offreExport: 'Standard',
+        },
+      ],
+    });
+
+    renderWithProviders(<IssueList />);
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Débutant')).toBeInTheDocument();
+    expect(within(table).getByText('Premium')).toBeInTheDocument();
+    expect(within(table).getByText('Avancé')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Profil Export'), { target: { value: 'Débutant' } });
+
+    expect(within(table).getByText('PROJ-1')).toBeInTheDocument();
+    expect(within(table).queryByText('PROJ-2')).not.toBeInTheDocument();
   });
 });

@@ -26,11 +26,13 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     );
   }
 
-  it('searchIssues returns mapped issue summaries', async () => {
+  it('searchIssues returns mapped issue summaries (with extra fields resolved by name)', async () => {
     const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
       .intercept({ path: /\/jira\/rest\/api\/2\/search.*/, method: 'GET' })
       .reply(200, {
+        total: 2,
         issues: [
           { key: 'PROJ-1', fields: { summary: 'Ticket un', status: { name: 'Open' }, issuetype: { name: 'Task' } } },
           { key: 'PROJ-2', fields: { summary: 'Ticket deux', status: { name: 'Done' }, issuetype: { name: 'Bug' } } },
@@ -40,20 +42,77 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     const issues = await client().searchIssues('project = PROJ');
 
     expect(issues).toEqual([
-      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' },
-      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', issueType: 'Bug' },
+      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', profilExport: null, offreExport: null },
+      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', issueType: 'Bug', profilExport: null, offreExport: null },
     ]);
+  });
+
+  it('resolves Profil Export / Offre Export by name into dedicated summary fields', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
+    pool
+      .intercept({ path: /\/jira\/rest\/api\/2\/search.*/, method: 'GET' })
+      .reply(200, {
+        total: 1,
+        issues: [
+          {
+            key: 'PROJ-1',
+            fields: {
+              summary: 'Ticket un',
+              status: { name: 'Open' },
+              issuetype: { name: 'Task' },
+              customfield_10020: { value: 'Débutant' },
+              customfield_10021: { value: 'Premium' },
+            },
+          },
+        ],
+      });
+
+    const issues = await client().searchIssues('project = PROJ');
+
+    expect(issues).toEqual([
+      {
+        key: 'PROJ-1',
+        summary: 'Ticket un',
+        status: 'Open',
+        issueType: 'Task',
+        profilExport: 'Débutant',
+        offreExport: 'Premium',
+      },
+    ]);
+  });
+
+  it('paginates until every issue is fetched', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
+    pool
+      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=0.*/, method: 'GET' })
+      .reply(200, {
+        total: 2,
+        issues: [{ key: 'PROJ-1', fields: { summary: 'Un', status: null, issuetype: null } }],
+      });
+    pool
+      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=100.*/, method: 'GET' })
+      .reply(200, {
+        total: 2,
+        issues: [{ key: 'PROJ-2', fields: { summary: 'Deux', status: null, issuetype: null } }],
+      });
+
+    const issues = await client().searchIssues('project = PROJ');
+
+    expect(issues.map((i) => i.key)).toEqual(['PROJ-1', 'PROJ-2']);
   });
 
   it('sends the PAT as a Bearer Authorization header', async () => {
     const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
       .intercept({
         path: /\/jira\/rest\/api\/2\/search.*/,
         method: 'GET',
         headers: (headers) => headers.authorization === 'Bearer test-pat',
       })
-      .reply(200, { issues: [] });
+      .reply(200, { total: 0, issues: [] });
 
     // Si le header Authorization ne correspond pas, undici lève une erreur
     // "no matching interceptor" — c'est l'assertion elle-même.

@@ -1,8 +1,14 @@
-export interface IssueSummary {
+export interface IssueBase {
   key: string;
   summary: string;
   status: string | null;
   issueType: string | null;
+}
+
+// Vue liste : quelques champs métier supplémentaires affichés en colonnes.
+export interface IssueSummary extends IssueBase {
+  profilExport: string | null;
+  offreExport: string | null;
 }
 
 export interface IssueField {
@@ -19,7 +25,8 @@ export interface AttachmentMeta {
   contentUrl: string;
 }
 
-export interface IssueDetail extends IssueSummary {
+// Vue détail : tous les champs renseignés sont déjà dans `fields`.
+export interface IssueDetail extends IssueBase {
   fields: IssueField[];
   attachments: AttachmentMeta[];
 }
