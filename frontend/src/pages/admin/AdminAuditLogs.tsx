@@ -53,30 +53,32 @@ export function AdminAuditLogs(): ReactElement {
         ))}
       </select>
 
-      <table className="admin-audit-logs__table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Utilisateur</th>
-            <th>Action</th>
-            <th>Entité</th>
-            <th>IP</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data?.items.map((log) => (
-            <tr key={log.id}>
-              <td>{new Date(log.createdAt).toLocaleString('fr-FR')}</td>
-              <td>{log.user?.email ?? log.userId}</td>
-              <td>{log.action}</td>
-              <td>
-                {log.entityType ? `${log.entityType}${log.entityKey ? ` · ${log.entityKey}` : ''}` : '—'}
-              </td>
-              <td>{log.ipAddress ?? '—'}</td>
+      <div className="table-scroll">
+        <table className="admin-audit-logs__table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Utilisateur</th>
+              <th>Action</th>
+              <th>Entité</th>
+              <th>IP</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data?.items.map((log) => (
+              <tr key={log.id}>
+                <td>{new Date(log.createdAt).toLocaleString('fr-FR')}</td>
+                <td>{log.user?.email ?? log.userId}</td>
+                <td>{log.action}</td>
+                <td>
+                  {log.entityType ? `${log.entityType}${log.entityKey ? ` · ${log.entityKey}` : ''}` : '—'}
+                </td>
+                <td>{log.ipAddress ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="admin-audit-logs__pagination">
         <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>

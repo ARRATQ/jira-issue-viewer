@@ -106,34 +106,36 @@ export function IssueList(): ReactElement {
       {filteredIssues.length === 0 ? (
         <p>Aucune issue ne correspond à ces filtres.</p>
       ) : (
-        <table className="issue-list__table">
-          <thead>
-            <tr>
-              <th>Clé</th>
-              <th>Résumé</th>
-              <th>Statut</th>
-              <th>Type</th>
-              <th>Profil Export</th>
-              <th>Offre Export</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredIssues.map((issue) => (
-              <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
-                <td>
-                  <button type="button" className="issue-list__key-button">
-                    {issue.key}
-                  </button>
-                </td>
-                <td>{issue.summary}</td>
-                <td>{issue.status ?? '—'}</td>
-                <td>{issue.issueType ?? '—'}</td>
-                <td>{issue.profilExport ?? '—'}</td>
-                <td>{issue.offreExport ?? '—'}</td>
+        <div className="table-scroll">
+          <table className="issue-list__table">
+            <thead>
+              <tr>
+                <th>Clé</th>
+                <th>Résumé</th>
+                <th>Statut</th>
+                <th>Type</th>
+                <th>Profil Export</th>
+                <th>Offre Export</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredIssues.map((issue) => (
+                <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
+                  <td>
+                    <button type="button" className="issue-list__key-button">
+                      {issue.key}
+                    </button>
+                  </td>
+                  <td>{issue.summary}</td>
+                  <td>{issue.status ?? '—'}</td>
+                  <td>{issue.issueType ?? '—'}</td>
+                  <td>{issue.profilExport ?? '—'}</td>
+                  <td>{issue.offreExport ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <IssueDetailDrawer

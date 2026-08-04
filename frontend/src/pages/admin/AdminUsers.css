@@ -15,6 +15,7 @@
 
 .admin-users__table {
   width: 100%;
+  min-width: 34rem;
   border-collapse: collapse;
   background: var(--color-surface);
   border: 1px solid var(--color-border);

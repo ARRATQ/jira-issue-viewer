@@ -37,45 +37,47 @@ export function AdminUsers(): ReactElement {
     <div className="admin-users">
       <h1>Comptes</h1>
 
-      <table className="admin-users__table">
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Nom</th>
-            <th>Rôle</th>
-            <th>Statut</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {data?.users.map((user) => (
-            <tr key={user.id}>
-              <td>{user.email}</td>
-              <td>{user.name}</td>
-              <td>
-                <select
-                  aria-label={`Rôle de ${user.email}`}
-                  value={user.role}
-                  onChange={(e) => updateUser.mutate({ id: user.id, role: e.target.value as AdminUser['role'] })}
-                >
-                  <option value="USER">USER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              </td>
-              <td>{user.active ? 'Actif' : 'Désactivé'}</td>
-              <td>
-                <button
-                  type="button"
-                  onClick={() => updateUser.mutate({ id: user.id, active: !user.active })}
-                  disabled={updateUser.isPending}
-                >
-                  {user.active ? 'Désactiver' : 'Réactiver'}
-                </button>
-              </td>
+      <div className="table-scroll">
+        <table className="admin-users__table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Nom</th>
+              <th>Rôle</th>
+              <th>Statut</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data?.users.map((user) => (
+              <tr key={user.id}>
+                <td>{user.email}</td>
+                <td>{user.name}</td>
+                <td>
+                  <select
+                    aria-label={`Rôle de ${user.email}`}
+                    value={user.role}
+                    onChange={(e) => updateUser.mutate({ id: user.id, role: e.target.value as AdminUser['role'] })}
+                  >
+                    <option value="USER">USER</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                </td>
+                <td>{user.active ? 'Actif' : 'Désactivé'}</td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => updateUser.mutate({ id: user.id, active: !user.active })}
+                    disabled={updateUser.isPending}
+                  >
+                    {user.active ? 'Désactiver' : 'Réactiver'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <h2>Créer un compte</h2>
       <form className="admin-users__form" onSubmit={(e) => void handleCreate(e)}>

@@ -76,5 +76,11 @@
 .drawer-panel__content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-6);
+  padding: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .drawer-panel__content {
+    padding: var(--space-6);
+  }
 }
