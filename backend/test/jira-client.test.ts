@@ -82,6 +82,34 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     ]);
   });
 
+  it('flattens a multi-select Profil Export / Offre Export field into a joined string', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
+    pool
+      .intercept({ path: /\/jira\/rest\/api\/2\/search.*/, method: 'GET' })
+      .reply(200, {
+        total: 1,
+        issues: [
+          {
+            key: 'PROJ-1',
+            fields: {
+              summary: 'Ticket un',
+              status: { name: 'Open' },
+              issuetype: { name: 'Task' },
+              // Champ à sélection multiple : extractFieldValue renvoie un tableau.
+              customfield_10020: [{ value: 'Débutant' }, { value: 'Confirmé' }],
+              customfield_10021: null,
+            },
+          },
+        ],
+      });
+
+    const issues = await client().searchIssues('project = PROJ');
+
+    expect(issues[0]?.profilExport).toBe('Débutant, Confirmé');
+    expect(issues[0]?.offreExport).toBeNull();
+  });
+
   it('paginates until every issue is fetched', async () => {
     const pool = mockAgent.get(ORIGIN);
     pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);

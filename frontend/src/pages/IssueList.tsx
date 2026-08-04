@@ -10,7 +10,9 @@ function distinctValues(issues: IssueSummary[], key: 'status' | 'profilExport' |
   const values = new Set<string>();
   for (const issue of issues) {
     const value = issue[key];
-    if (value) values.add(value);
+    // Filet de sécurité : ne garder que de vraies chaînes, au cas où une
+    // valeur de champ Jira inattendue (tableau, objet) remonterait telle quelle.
+    if (typeof value === 'string' && value) values.add(value);
   }
   return [...values].sort((a, b) => a.localeCompare(b));
 }

@@ -120,6 +120,17 @@ function findFieldIdByName(fieldsMeta: Map<string, string>, wantedName: string):
   return null;
 }
 
+// Ramène toujours une chaîne simple (ou null) : un champ Jira peut être
+// multi-valeurs (liste à sélection multiple), auquel cas extractFieldValue
+// renvoie un tableau — inacceptable pour les champs de la liste (colonnes,
+// tri des filtres), donc on l'aplatit en une chaîne jointe par virgules.
+function extractScalarFieldValue(raw: unknown): string | null {
+  const value = extractFieldValue(raw);
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : null;
+  return String(value);
+}
+
 // Champs additionnels affichés en colonnes dans la liste des issues, en plus
 // des champs standard (résumé/statut/type).
 const LIST_EXTRA_FIELDS = {
@@ -227,10 +238,10 @@ export class JiraClient {
         issues.push({
           key: issue.key,
           summary: String(issue.fields.summary ?? ''),
-          status: extractFieldValue(issue.fields.status) as string | null,
-          issueType: extractFieldValue(issue.fields.issuetype) as string | null,
-          profilExport: profilExportId ? (extractFieldValue(issue.fields[profilExportId]) as string | null) : null,
-          offreExport: offreExportId ? (extractFieldValue(issue.fields[offreExportId]) as string | null) : null,
+          status: extractScalarFieldValue(issue.fields.status),
+          issueType: extractScalarFieldValue(issue.fields.issuetype),
+          profilExport: profilExportId ? extractScalarFieldValue(issue.fields[profilExportId]) : null,
+          offreExport: offreExportId ? extractScalarFieldValue(issue.fields[offreExportId]) : null,
         });
       }
 
