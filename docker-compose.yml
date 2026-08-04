@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER:-jivuser}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - jiv-db-data:/var/lib/postgresql/data
+      - jiv-db-data-v2:/var/lib/postgresql/data
     networks:
       - jiv-net
     healthcheck:
@@ -70,7 +70,7 @@ services:
       - '${APP_PORT:-8070}:80'
 
 volumes:
-  jiv-db-data:
+  jiv-db-data-v2:
 
 networks:
   jiv-net:
