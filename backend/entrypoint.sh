@@ -1,17 +1,21 @@
 #!/bin/sh
 set -e
 
-# Construit DATABASE_URL à partir des variables simples (DB_HOST/DB_PORT/
-# DB_USER/DB_PASSWORD/DB_NAME) plutôt que de la recevoir déjà assemblée —
-# voir docker-compose.yml pour le pourquoi (interpolation composée non
-# fiable sur certaines plateformes de déploiement).
-# Toujours reconstruite quand DB_HOST est fourni (pas seulement si
-# DATABASE_URL est vide) : l'image contient une valeur factice de
-# DATABASE_URL posée au build pour `prisma generate`, qui sinon persisterait
-# telle quelle dans le conteneur en cours d'exécution.
-if [ -n "$DB_HOST" ]; then
-  export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-fi
+# Construit DATABASE_URL soi-même à partir de DB_USER/DB_PASSWORD/DB_NAME
+# plutôt que de la recevoir déjà assemblée depuis docker-compose.yml : sur
+# Coolify, ni une variable composée (plusieurs ${...} dans une valeur) ni
+# même une valeur statique simple (DB_HOST=db) posée dans `environment:` ne
+# se sont transmises fidèlement au conteneur. DB_HOST/DB_PORT sont donc
+# codés en dur ici, avec DB_USER/DB_PASSWORD/DB_NAME comme seules variables
+# externes nécessaires (celles-là passent bien, ce sont de simples valeurs
+# scalaires sans interpolation).
+DB_HOST="${DB_HOST:-db}"
+DB_PORT="${DB_PORT:-5432}"
+export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+
+# Diagnostic (aucun secret affiché) : confirme ce qui est réellement reçu.
+if [ -n "$DB_PASSWORD" ]; then DB_PASSWORD_STATUS="set (${#DB_PASSWORD} chars)"; else DB_PASSWORD_STATUS="EMPTY"; fi
+echo "DB config -> user='${DB_USER:-<empty>}' name='${DB_NAME:-<empty>}' host='${DB_HOST}' port='${DB_PORT}' password=${DB_PASSWORD_STATUS}"
 
 echo "Running Prisma migrations..."
 npx prisma migrate deploy --schema ./src/prisma/schema.prisma
