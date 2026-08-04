@@ -36,6 +36,8 @@ export interface JiraAttachmentMeta {
   mimeType: string;
   size: number;
   contentUrl: string;
+  authorId: string | null;
+  authorName: string | null;
 }
 
 export interface JiraIssueBase {
@@ -53,9 +55,13 @@ export interface JiraIssueSummary extends JiraIssueBase {
 
 // Vue détail : tous les champs renseignés (dont Profil/Offre Export s'ils
 // existent) sont déjà dans `fields`, pas besoin de les dupliquer à part.
+// reporterId/reporterName permettent au frontend de filtrer les pièces
+// jointes par déposant (ex. n'afficher que celles du rapporteur).
 export interface JiraIssueDetail extends JiraIssueBase {
   fields: JiraField[];
   attachments: JiraAttachmentMeta[];
+  reporterId: string | null;
+  reporterName: string | null;
 }
 
 export interface JiraAttachmentStream {
@@ -131,6 +137,19 @@ function extractScalarFieldValue(raw: unknown): string | null {
   return String(value);
 }
 
+// Identifie un utilisateur Jira de façon stable pour comparer "auteur d'une
+// pièce jointe" et "rapporteur du ticket" : accountId (Cloud), key ou name
+// (Data Center) selon ce que l'instance expose, plus un nom lisible pour
+// l'affichage. Deux displayName peuvent se recouper, jamais ces identifiants.
+function extractUserIdentity(raw: unknown): { id: string | null; displayName: string | null } {
+  if (!raw || typeof raw !== 'object') return { id: null, displayName: null };
+  const obj = raw as Record<string, unknown>;
+  const idSource = obj.accountId ?? obj.key ?? obj.name ?? null;
+  const id = idSource !== null && idSource !== undefined ? String(idSource) : null;
+  const displayName = typeof obj.displayName === 'string' ? obj.displayName : null;
+  return { id, displayName };
+}
+
 // Champs additionnels affichés en colonnes dans la liste des issues, en plus
 // des champs standard (résumé/statut/type).
 const LIST_EXTRA_FIELDS = {
@@ -145,13 +164,18 @@ const SEARCH_MAX_ISSUES = 500;
 
 function mapAttachments(raw: unknown): JiraAttachmentMeta[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((a) => ({
-    id: String(a.id),
-    filename: String(a.filename),
-    mimeType: String(a.mimeType ?? 'application/octet-stream'),
-    size: Number(a.size ?? 0),
-    contentUrl: String(a.content),
-  }));
+  return raw.map((a) => {
+    const author = extractUserIdentity(a.author);
+    return {
+      id: String(a.id),
+      filename: String(a.filename),
+      mimeType: String(a.mimeType ?? 'application/octet-stream'),
+      size: Number(a.size ?? 0),
+      contentUrl: String(a.content),
+      authorId: author.id,
+      authorName: author.displayName,
+    };
+  });
 }
 
 export class JiraClient {
@@ -258,13 +282,16 @@ export class JiraClient {
       fields: Record<string, unknown>;
     };
     const rawFields = data.fields;
+    const reporter = extractUserIdentity(rawFields.reporter);
     return {
       key: data.key,
       summary: String(rawFields.summary ?? ''),
-      status: extractFieldValue(rawFields.status) as string | null,
-      issueType: extractFieldValue(rawFields.issuetype) as string | null,
+      status: extractScalarFieldValue(rawFields.status),
+      issueType: extractScalarFieldValue(rawFields.issuetype),
       fields: extractPopulatedFields(rawFields, fieldsMeta),
       attachments: mapAttachments(rawFields.attachment),
+      reporterId: reporter.id,
+      reporterName: reporter.displayName,
     };
   }
 

@@ -176,8 +176,35 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         mimeType: 'application/pdf',
         size: 204800,
         contentUrl: 'https://jira.example.com/secure/attachment/1001/cahier-des-charges.pdf',
+        authorId: 'jdupont',
+        authorName: 'Jean Dupont',
+      },
+      {
+        id: '1002',
+        filename: 'note-interne.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        size: 51200,
+        contentUrl: 'https://jira.example.com/secure/attachment/1002/note-interne.docx',
+        authorId: 'agent42',
+        authorName: 'Agent Support',
       },
     ]);
+  });
+
+  it('resolves the reporter identity so attachments can be matched against it', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool
+      .intercept({ path: '/jira/rest/api/2/issue/PROJ-123?fields=*all', method: 'GET' })
+      .reply(200, issueDetail);
+
+    const fieldsMeta = new Map(fieldCatalog.map((f) => [f.id, f.name]));
+    const issue = await client().getIssue('PROJ-123', fieldsMeta);
+
+    expect(issue.reporterId).toBe('jdupont');
+    expect(issue.reporterName).toBe('Jean Dupont');
+
+    const reporterAttachments = issue.attachments.filter((a) => a.authorId === issue.reporterId);
+    expect(reporterAttachments.map((a) => a.filename)).toEqual(['cahier-des-charges.pdf']);
   });
 
   it('throws JiraApiError on a non-2xx response', async () => {

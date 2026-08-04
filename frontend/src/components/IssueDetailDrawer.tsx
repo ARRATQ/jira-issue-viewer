@@ -32,6 +32,14 @@ export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpan
   const currentTabId = groups.some((g) => g.id === activeTab) ? activeTab : (groups[0]?.id ?? '');
   const currentGroup = groups.find((g) => g.id === currentTabId);
 
+  // USER ne voit que les pièces jointes déposées par le rapporteur du
+  // ticket ; ADMIN garde la visibilité complète.
+  const visibleAttachments = useMemo(() => {
+    if (!data) return [];
+    if (user?.role === 'ADMIN') return data.attachments;
+    return data.attachments.filter((a) => a.authorId !== null && a.authorId === data.reporterId);
+  }, [data, user?.role]);
+
   return (
     <Drawer
       isOpen={issueKey !== null}
@@ -87,11 +95,11 @@ export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpan
 
           <section className="issue-detail-drawer__attachments">
             <h3>Pièces jointes</h3>
-            {data.attachments.length === 0 ? (
+            {visibleAttachments.length === 0 ? (
               <p>Aucune pièce jointe.</p>
             ) : (
               <ul>
-                {data.attachments.map((attachment) => (
+                {visibleAttachments.map((attachment) => (
                   <AttachmentItem key={attachment.id} issueKey={data.key} attachment={attachment} />
                 ))}
               </ul>

@@ -23,12 +23,17 @@ export interface AttachmentMeta {
   mimeType: string;
   size: number;
   contentUrl: string;
+  authorId: string | null;
+  authorName: string | null;
 }
 
 // Vue détail : tous les champs renseignés sont déjà dans `fields`.
+// reporterId permet de filtrer les pièces jointes par déposant.
 export interface IssueDetail extends IssueBase {
   fields: IssueField[];
   attachments: AttachmentMeta[];
+  reporterId: string | null;
+  reporterName: string | null;
 }
 
 export interface IssuesResponse {

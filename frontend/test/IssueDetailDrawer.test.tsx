@@ -101,3 +101,59 @@ describe('IssueDetailDrawer — "Réalisation et prévision" tab visibility by r
     expect(screen.getByText('France')).toBeInTheDocument();
   });
 });
+
+describe('IssueDetailDrawer — attachments filtered by reporter for the USER role', () => {
+  const ISSUE_WITH_ATTACHMENTS = {
+    ...ISSUE_DETAIL,
+    reporterId: 'jdupont',
+    reporterName: 'Jean Dupont',
+    attachments: [
+      {
+        id: '1001',
+        filename: 'cahier-des-charges.pdf',
+        mimeType: 'application/pdf',
+        size: 1024,
+        contentUrl: 'x',
+        authorId: 'jdupont',
+        authorName: 'Jean Dupont',
+      },
+      {
+        id: '1002',
+        filename: 'note-interne.docx',
+        mimeType: 'application/msword',
+        size: 2048,
+        contentUrl: 'x',
+        authorId: 'agent42',
+        authorName: 'Agent Support',
+      },
+    ],
+  };
+
+  it('shows only the reporter’s attachments for the USER role', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'u1', email: 'u@example.com', name: 'U', role: 'USER' },
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('cahier-des-charges.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('note-interne.docx')).not.toBeInTheDocument();
+  });
+
+  it('shows every attachment for the ADMIN role', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'a1', email: 'a@example.com', name: 'A', role: 'ADMIN' },
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('cahier-des-charges.pdf')).toBeInTheDocument();
+    expect(screen.getByText('note-interne.docx')).toBeInTheDocument();
+  });
+});
