@@ -29,7 +29,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- Frontend : http://localhost:8080 (port configurable via `APP_PORT`)
+- Frontend : http://localhost:8070 (port configurable via `APP_PORT`)
 - Backend (API directe, utile pour déboguer) : http://localhost:3001 (port configurable via `BACKEND_PORT`)
 - Au premier démarrage, le backend applique les migrations Prisma puis seed le compte admin initial (`ADMIN_EMAIL`/`ADMIN_PASSWORD`).
 

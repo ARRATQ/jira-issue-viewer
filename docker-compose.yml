@@ -33,7 +33,7 @@ services:
       - JIRA_PAT=${JIRA_PAT:-}
       - JIRA_JQL=${JIRA_JQL:-}
       - JIRA_TLS_REJECT_UNAUTHORIZED=${JIRA_TLS_REJECT_UNAUTHORIZED:-false}
-      - APP_ORIGIN=${APP_ORIGIN:-http://localhost:8080}
+      - APP_ORIGIN=${APP_ORIGIN:-http://localhost:8070}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - ADMIN_NAME=${ADMIN_NAME:-Administrateur}
@@ -56,7 +56,7 @@ services:
     networks:
       - jiv-net
     ports:
-      - '${APP_PORT:-8080}:80'
+      - '${APP_PORT:-8070}:80'
 
 volumes:
   jiv-db-data:
