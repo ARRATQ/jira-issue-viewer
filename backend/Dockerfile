@@ -10,8 +10,12 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends openssl \
 # `prisma generate` only needs DATABASE_URL to resolve, never connects to it.
 ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
 
+# --include=dev overrides any ambient/build-injected NODE_ENV=production
+# (some PaaS platforms, e.g. Coolify, pass through configured env vars as
+# build args) — without it, npm ci silently skips devDependencies
+# (typescript, tsx...) and the tsc build below fails with "command not found".
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY tsconfig.json ./
 COPY src ./src

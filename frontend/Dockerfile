@@ -11,8 +11,13 @@ WORKDIR /app
 ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 
+# --include=dev overrides any ambient/build-injected NODE_ENV=production
+# (some PaaS platforms, e.g. Coolify, pass through configured env vars as
+# build args) — without it, npm ci silently skips devDependencies (vite,
+# typescript, @vitejs/plugin-react...) and the build below fails with
+# "command not found".
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY . .
 RUN npm run build
