@@ -25,7 +25,18 @@ services:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://${DB_USER:-jivuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-jira_issue_viewer}
+      # DATABASE_URL n'est pas assemblée ici : certaines plateformes (ex.
+      # Coolify) exposent chaque entrée de `environment:` comme une
+      # variable éditable dans leur UI et ne résolvent pas correctement
+      # cette interpolation composée (plusieurs `${...}` dans une seule
+      # valeur), ce qui corrompt la chaîne de connexion. Elle est donc
+      # construite dans entrypoint.sh avec un vrai shell, à partir des
+      # variables simples ci-dessous.
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-jira_issue_viewer}
+      - DB_USER=${DB_USER:-jivuser}
+      - DB_PASSWORD=${DB_PASSWORD}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
