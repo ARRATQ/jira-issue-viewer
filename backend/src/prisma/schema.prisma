@@ -48,3 +48,27 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+// Une requête JQL nommée, avec sa propre configuration d'affichage
+// (colonnes de liste + onglets de détail). Structures toujours lues/écrites
+// en bloc (jamais interrogées champ par champ en SQL) : stockage en Json,
+// même pattern que Program.categories/intCriteria dans le projet de
+// référence "referencement" plutôt qu'un éclatement en tables relationnelles.
+model SavedQuery {
+  id          String   @id @default(uuid())
+  name        String
+  jql         String   @db.Text
+  position    Int      @default(0)
+  // [{ fieldId, fieldName }, ...] — colonnes/filtres affichés dans la liste,
+  // en plus de Clé/Résumé/Statut/Type.
+  listColumns Json     @default("[]")
+  // [{ id, label, position, visibleToUser, fields: [{ fieldId, fieldName }] }, ...]
+  // L'onglet système "Autres" (champs non mappés) n'est jamais stocké ici :
+  // seule sa visibilité par rôle l'est, via autresVisibleToUser.
+  tabs        Json     @default("[]")
+  autresVisibleToUser Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([position])
+}
