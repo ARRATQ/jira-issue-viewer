@@ -21,6 +21,7 @@ describe('AttachmentItem', () => {
 
     render(
       <AttachmentItem
+        queryId="q1"
         issueKey="PROJ-1"
         attachment={{ id: '1', filename: 'photo.png', mimeType: 'image/png', size: 1024, contentUrl: 'x' }}
       />,
@@ -29,12 +30,13 @@ describe('AttachmentItem', () => {
     fireEvent.click(screen.getByRole('button', { name: /Aperçu/i }));
 
     await waitFor(() => expect(screen.getByRole('img')).toBeInTheDocument());
-    expect(apiFetchBlob).toHaveBeenCalledWith('/api/issues/PROJ-1/attachments/1');
+    expect(apiFetchBlob).toHaveBeenCalledWith('/api/queries/q1/issues/PROJ-1/attachments/1');
   });
 
   it('does not show a preview toggle for non-previewable types, only download', () => {
     render(
       <AttachmentItem
+        queryId="q1"
         issueKey="PROJ-1"
         attachment={{
           id: '2',
@@ -54,6 +56,7 @@ describe('AttachmentItem', () => {
 
     render(
       <AttachmentItem
+        queryId="q1"
         issueKey="PROJ-1"
         attachment={{ id: '3', filename: 'photo.png', mimeType: 'image/png', size: 1024, contentUrl: 'x' }}
       />,

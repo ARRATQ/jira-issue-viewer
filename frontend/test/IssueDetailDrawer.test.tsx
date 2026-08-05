@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { IssueDetailDrawer } from '../src/components/IssueDetailDrawer';
 import { setAuth } from '../src/lib/authStore';
+import type { QueryTab } from '../src/types/query';
 
 vi.mock('../src/lib/apiClient', () => ({
   apiFetch: vi.fn(),
@@ -25,11 +26,32 @@ const ISSUE_DETAIL = {
   attachments: [],
 };
 
-function renderDrawer() {
+// Config d'onglets de la requête (remplace la constante statique) : "Infos"
+// visible pour tous, "Réalisation et prévision" réservé aux admins.
+const TABS: QueryTab[] = [
+  { id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] },
+  {
+    id: 'realisation',
+    label: 'Réalisation et prévision',
+    position: 1,
+    visibleToUser: false,
+    fields: [{ fieldName: 'Pays cibles' }],
+  },
+];
+
+function renderDrawer(autresVisibleToUser = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <IssueDetailDrawer issueKey="PROJ-1" isExpanded={false} onClose={() => {}} onToggleExpand={() => {}} />
+      <IssueDetailDrawer
+        queryId="q1"
+        tabs={TABS}
+        autresVisibleToUser={autresVisibleToUser}
+        issueKey="PROJ-1"
+        isExpanded={false}
+        onClose={() => {}}
+        onToggleExpand={() => {}}
+      />
     </QueryClientProvider>,
   );
 }
@@ -66,6 +88,20 @@ describe('IssueDetailDrawer — "Autres" tab visibility by role', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Autres' }));
 
+    expect(await screen.findByText('customfield_99999')).toBeInTheDocument();
+  });
+
+  it('shows the "Autres" tab to a USER when the query marks it visible', async () => {
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'u1', email: 'u@example.com', name: 'U', role: 'USER' },
+    });
+
+    renderDrawer(true);
+    await screen.findByText('Raison Sociale');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Autres' }));
     expect(await screen.findByText('customfield_99999')).toBeInTheDocument();
   });
 });

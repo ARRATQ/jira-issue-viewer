@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { IssueList } from './pages/IssueList';
+import { QueryIndex } from './pages/QueryIndex';
 import { AccountSettings } from './pages/AccountSettings';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminConfig } from './pages/admin/AdminConfig';
@@ -26,7 +27,8 @@ export function App(): ReactElement {
               </ProtectedRoute>
             }
           >
-            <Route index element={<IssueList />} />
+            <Route index element={<QueryIndex />} />
+            <Route path="queries/:queryId" element={<IssueList />} />
             <Route path="account" element={<AccountSettings />} />
             <Route
               path="admin"

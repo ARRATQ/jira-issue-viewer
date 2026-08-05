@@ -2,12 +2,15 @@ import type { ReactElement } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useBranding } from '../hooks/useBranding';
+import { useQueriesNav } from '../hooks/useQueries';
 import { Footer } from './Footer';
 import './Layout.css';
 
 export function Layout(): ReactElement {
   const { user, logout } = useAuth();
   const { data: branding } = useBranding();
+  const { data: queriesData } = useQueriesNav();
+  const queries = queriesData?.queries ?? [];
 
   return (
     <div className="app-shell">
@@ -17,9 +20,15 @@ export function Layout(): ReactElement {
           <span>{branding?.appName ?? 'jira-issue-viewer'}</span>
         </div>
         <nav className="app-header__nav" aria-label="Navigation principale">
-          <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}>
-            Issues
-          </NavLink>
+          {queries.map((query) => (
+            <NavLink
+              key={query.id}
+              to={`/queries/${query.id}`}
+              className={({ isActive }) => (isActive ? 'is-active' : '')}
+            >
+              {query.name}
+            </NavLink>
+          ))}
           {user?.role === 'ADMIN' && (
             <NavLink to="/admin" className={({ isActive }) => (isActive ? 'is-active' : '')}>
               Administration

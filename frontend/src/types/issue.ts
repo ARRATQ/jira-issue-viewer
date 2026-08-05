@@ -1,3 +1,5 @@
+import type { FieldRef, QueryTab } from './query';
+
 export interface IssueBase {
   key: string;
   summary: string;
@@ -5,10 +7,11 @@ export interface IssueBase {
   issueType: string | null;
 }
 
-// Vue liste : quelques champs métier supplémentaires affichés en colonnes.
+// Vue liste : les colonnes métier supplémentaires sont désormais dynamiques,
+// pilotées par les `listColumns` de la requête. Chaque valeur est indexée par
+// le nom de champ Jira (clé identique à `listColumns[].fieldName`).
 export interface IssueSummary extends IssueBase {
-  profilExport: string | null;
-  offreExport: string | null;
+  extraFields: Record<string, string | null>;
 }
 
 export interface IssueField {
@@ -36,7 +39,15 @@ export interface IssueDetail extends IssueBase {
   reporterName: string | null;
 }
 
-export interface IssuesResponse {
+// Réponse de GET /api/queries/:queryId/issues : la liste des issues plus la
+// config de la requête (colonnes de liste + onglets du drawer) pour rendre la
+// vue entièrement pilotée par les données, sans requête supplémentaire.
+export interface QueryIssuesResponse {
+  queryId: string;
+  queryName: string;
   jql: string;
+  listColumns: FieldRef[];
+  tabs: QueryTab[];
+  autresVisibleToUser: boolean;
   issues: IssueSummary[];
 }

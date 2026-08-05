@@ -1,73 +1,17 @@
 import type { IssueField } from '../types/issue';
-
-export interface FieldGroupDefinition {
-  id: string;
-  label: string;
-  fieldNames: string[];
-}
+import type { QueryTab } from '../types/query';
 
 export interface FieldGroupResult {
   id: string;
   label: string;
+  visibleToUser: boolean;
   fields: IssueField[];
 }
 
-// Onglets métier fixes de la fiche ticket. Les noms listés doivent
-// correspondre (à la casse/ponctuation près, cf. normalize()) aux noms de
-// champs Jira résolus côté backend via /rest/api/2/field.
-export const ISSUE_FIELD_GROUPS: FieldGroupDefinition[] = [
-  {
-    id: 'infos',
-    label: 'Infos',
-    fieldNames: [
-      'Raison Sociale',
-      'Votre entreprise opère dans',
-      'Statut Juridique',
-      'ICE',
-      'N° RC',
-      'Siège social',
-      'Adresse',
-      'Actionnariat 100% privée',
-    ],
-  },
-  {
-    id: 'contact',
-    label: 'Contact',
-    fieldNames: [
-      'Genre',
-      'Nom du représentant légal',
-      'Prénom du représentant légal',
-      'Poste du représentant légal',
-      'GSM',
-      'e-Mail',
-    ],
-  },
-  {
-    id: 'activites',
-    label: 'Activités',
-    fieldNames: ['Activité détaillée', 'Produits', 'Marchés'],
-  },
-  {
-    id: 'besoin',
-    label: 'Besoin',
-    fieldNames: ["Disposez vous d'un plan d'action à l'export?", 'Profil Export', 'Offre Export', 'EXPO Programme'],
-  },
-  {
-    id: 'realisation',
-    label: 'Réalisation et prévision',
-    fieldNames: [
-      'Produits ciblés pour Export',
-      'Pays cibles',
-      'Année de référence N',
-      '[C] CADH Année N-1',
-      '[C] CADH Année N-2',
-      "Chiffre d'affaires à l'export N-1",
-      "Chiffre d'affaires à l'export N-2",
-      "Chiffre d'affaires Export N+1",
-      "Chiffre d'affaires Export N+2",
-    ],
-  },
-];
+// Id de l'onglet système "Autres" : toujours ajouté implicitement en fin de
+// liste, jamais stocké dans la config d'une requête (seule sa visibilité par
+// rôle l'est, via `autresVisibleToUser`).
+export const AUTRES_TAB_ID = 'autres';
 
 function normalize(name: string): string {
   return name
@@ -77,23 +21,36 @@ function normalize(name: string): string {
     .toLowerCase();
 }
 
-// Répartit les champs renseignés d'une issue dans les onglets métier définis
-// ci-dessus (dans l'ordre déclaré par onglet), et regroupe tout champ qui ne
-// correspond à aucun d'eux sous un onglet "Autres" — aucun champ renseigné
-// n'est jamais silencieusement masqué.
-export function groupIssueFields(fields: IssueField[]): FieldGroupResult[] {
+// Répartit les champs renseignés d'une issue dans les onglets configurés pour
+// la requête courante (dans l'ordre des `position`, puis l'ordre déclaré des
+// champs de chaque onglet), et regroupe tout champ ne correspondant à aucun
+// onglet sous "Autres" — aucun champ renseigné n'est jamais silencieusement
+// masqué. Le matching se fait par nom normalisé (casse/ponctuation), même
+// logique que le backend, source de données désormais paramétrée au lieu
+// d'une constante statique.
+export function groupIssueFields(
+  fields: IssueField[],
+  tabs: QueryTab[],
+  autresVisibleToUser = false,
+): FieldGroupResult[] {
   const remaining = new Map(fields.map((f) => [f.id, f]));
 
-  const groups = ISSUE_FIELD_GROUPS.map((group) => {
-    const normalizedWanted = group.fieldNames.map(normalize);
+  const orderedTabs = [...tabs].sort((a, b) => a.position - b.position);
+  const groups: FieldGroupResult[] = orderedTabs.map((tab) => {
+    const normalizedWanted = tab.fields.map((ref) => normalize(ref.fieldName));
     const matched = normalizedWanted
       .map((wanted) => fields.find((f) => normalize(f.name) === wanted))
       .filter((f): f is IssueField => f !== undefined);
     for (const f of matched) remaining.delete(f.id);
-    return { id: group.id, label: group.label, fields: matched };
+    return { id: tab.id, label: tab.label, visibleToUser: tab.visibleToUser, fields: matched };
   });
 
-  groups.push({ id: 'autres', label: 'Autres', fields: [...remaining.values()] });
+  groups.push({
+    id: AUTRES_TAB_ID,
+    label: 'Autres',
+    visibleToUser: autresVisibleToUser,
+    fields: [...remaining.values()],
+  });
 
   return groups;
 }

@@ -3,30 +3,41 @@ import type { ReactElement } from 'react';
 import { Drawer } from './Drawer';
 import { AttachmentItem } from './AttachmentItem';
 import { useAuth } from '../hooks/useAuth';
-import { useIssue } from '../hooks/useIssues';
+import { useQueryIssue } from '../hooks/useQueries';
 import { ApiError } from '../lib/apiClient';
 import { groupIssueFields } from '../lib/issueFieldGroups';
 import { formatFieldValue } from '../lib/formatFieldValue';
+import type { QueryTab } from '../types/query';
 import './IssueDetailDrawer.css';
 
 interface IssueDetailDrawerProps {
+  queryId: string;
+  tabs: QueryTab[];
+  autresVisibleToUser: boolean;
   issueKey: string | null;
   isExpanded: boolean;
   onClose: () => void;
   onToggleExpand: () => void;
 }
 
-export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpand }: IssueDetailDrawerProps): ReactElement {
+export function IssueDetailDrawer({
+  queryId,
+  tabs,
+  autresVisibleToUser,
+  issueKey,
+  isExpanded,
+  onClose,
+  onToggleExpand,
+}: IssueDetailDrawerProps): ReactElement {
   const { user } = useAuth();
-  const { data, isLoading, isError, error } = useIssue(issueKey ?? '');
+  const { data, isLoading, isError, error } = useQueryIssue(queryId, issueKey ?? '');
   const groups = useMemo(() => {
-    const allGroups = groupIssueFields(data?.fields ?? []);
+    const allGroups = groupIssueFields(data?.fields ?? [], tabs, autresVisibleToUser);
     if (user?.role === 'ADMIN') return allGroups;
-    // Réservés aux admins : "Autres" (champs hors des 5 onglets métier) et
-    // "Réalisation et prévision" — les users voient le reste de la vue métier.
-    const hiddenForUser = new Set(['autres', 'realisation']);
-    return allGroups.filter((g) => !hiddenForUser.has(g.id));
-  }, [data?.fields, user?.role]);
+    // La visibilité par rôle est désormais pilotée par la config de la requête :
+    // chaque onglet (et "Autres") porte son propre `visibleToUser`.
+    return allGroups.filter((g) => g.visibleToUser);
+  }, [data?.fields, tabs, autresVisibleToUser, user?.role]);
   const [activeTab, setActiveTab] = useState(groups[0]?.id ?? '');
 
   const currentTabId = groups.some((g) => g.id === activeTab) ? activeTab : (groups[0]?.id ?? '');
@@ -100,7 +111,7 @@ export function IssueDetailDrawer({ issueKey, isExpanded, onClose, onToggleExpan
             ) : (
               <ul>
                 {visibleAttachments.map((attachment) => (
-                  <AttachmentItem key={attachment.id} issueKey={data.key} attachment={attachment} />
+                  <AttachmentItem key={attachment.id} queryId={queryId} issueKey={data.key} attachment={attachment} />
                 ))}
               </ul>
             )}

@@ -82,6 +82,8 @@ describe('GET /api/queries/:queryId/issues', () => {
       name: 'Export',
       jql: 'project = PROJ',
       listColumns: [{ fieldName: 'Profil Export' }, { fieldName: 'Offre Export' }],
+      tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] }],
+      autresVisibleToUser: false,
     });
     fakeJiraClient.searchIssues.mockResolvedValue([
       {
@@ -100,6 +102,10 @@ describe('GET /api/queries/:queryId/issues', () => {
     expect(res.status).toBe(200);
     expect(res.body.queryId).toBe(query.id);
     expect(res.body.jql).toBe('project = PROJ');
+    expect(res.body.autresVisibleToUser).toBe(false);
+    expect(res.body.tabs).toEqual([
+      { id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] },
+    ]);
     expect(res.body.issues).toEqual([
       {
         key: 'PROJ-1',

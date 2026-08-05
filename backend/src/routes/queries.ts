@@ -51,6 +51,11 @@ queriesRouter.get(
       queryName: savedQuery.name,
       jql: savedQuery.jql,
       listColumns: savedQuery.listColumns,
+      // Onglets + visibilité "Autres" livrés avec la liste pour que le drawer
+      // de détail soit pilotable par les données sans requête supplémentaire
+      // (le résumé GET /api/queries ne porte que id/nom/position).
+      tabs: savedQuery.tabs,
+      autresVisibleToUser: savedQuery.autresVisibleToUser,
       issues,
     });
   }),
