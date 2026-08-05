@@ -26,9 +26,8 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     );
   }
 
-  it('searchIssues returns mapped issue summaries (with extra fields resolved by name)', async () => {
+  it('searchIssues returns mapped issue summaries with an empty extraFields map when none requested', async () => {
     const pool = mockAgent.get(ORIGIN);
-    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
       .intercept({ path: /\/jira\/rest\/api\/2\/search.*/, method: 'GET' })
       .reply(200, {
@@ -42,12 +41,12 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     const issues = await client().searchIssues('project = PROJ');
 
     expect(issues).toEqual([
-      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', profilExport: null, offreExport: null },
-      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', issueType: 'Bug', profilExport: null, offreExport: null },
+      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', extraFields: {} },
+      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', issueType: 'Bug', extraFields: {} },
     ]);
   });
 
-  it('resolves Profil Export / Offre Export by name into dedicated summary fields', async () => {
+  it('resolves requested extra field names into the extraFields map', async () => {
     const pool = mockAgent.get(ORIGIN);
     pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
@@ -68,7 +67,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         ],
       });
 
-    const issues = await client().searchIssues('project = PROJ');
+    const issues = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
 
     expect(issues).toEqual([
       {
@@ -76,13 +75,27 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         summary: 'Ticket un',
         status: 'Open',
         issueType: 'Task',
-        profilExport: 'Débutant',
-        offreExport: 'Premium',
+        extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
       },
     ]);
   });
 
-  it('flattens a multi-select Profil Export / Offre Export field into a joined string', async () => {
+  it('resolves to null an extra field name absent from the catalog, without failing', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
+    pool
+      .intercept({ path: /\/jira\/rest\/api\/2\/search.*/, method: 'GET' })
+      .reply(200, {
+        total: 1,
+        issues: [{ key: 'PROJ-1', fields: { summary: 'Ticket un', status: null, issuetype: null } }],
+      });
+
+    const issues = await client().searchIssues('project = PROJ', ['Champ Inexistant']);
+
+    expect(issues[0]?.extraFields).toEqual({ 'Champ Inexistant': null });
+  });
+
+  it('flattens a multi-select extra field into a joined string', async () => {
     const pool = mockAgent.get(ORIGIN);
     pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
@@ -104,15 +117,14 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         ],
       });
 
-    const issues = await client().searchIssues('project = PROJ');
+    const issues = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
 
-    expect(issues[0]?.profilExport).toBe('Débutant, Confirmé');
-    expect(issues[0]?.offreExport).toBeNull();
+    expect(issues[0]?.extraFields['Profil Export']).toBe('Débutant, Confirmé');
+    expect(issues[0]?.extraFields['Offre Export']).toBeNull();
   });
 
   it('paginates until every issue is fetched', async () => {
     const pool = mockAgent.get(ORIGIN);
-    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
       .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=0.*/, method: 'GET' })
       .reply(200, {
@@ -133,7 +145,6 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
 
   it('sends the PAT as a Bearer Authorization header', async () => {
     const pool = mockAgent.get(ORIGIN);
-    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, fieldCatalog);
     pool
       .intercept({
         path: /\/jira\/rest\/api\/2\/search.*/,

@@ -36,6 +36,18 @@ export interface FakeAuditLog {
   createdAt: Date;
 }
 
+export interface FakeSavedQuery {
+  id: string;
+  name: string;
+  jql: string;
+  position: number;
+  listColumns: unknown;
+  tabs: unknown;
+  autresVisibleToUser: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 type Select = Record<string, boolean> | undefined;
 
 function pick<T extends Record<string, unknown>>(obj: T, select: Select): Partial<T> {
@@ -60,8 +72,9 @@ export function createFakePrisma() {
   const users = new Map<string, FakeUser>();
   const configs = new Map<string, FakeAppConfig>();
   const auditLogs: FakeAuditLog[] = [];
+  const savedQueries = new Map<string, FakeSavedQuery>();
 
-  const state = { users, configs, auditLogs };
+  const state = { users, configs, auditLogs, savedQueries };
 
   return {
     __state: state,
@@ -69,6 +82,7 @@ export function createFakePrisma() {
       users.clear();
       configs.clear();
       auditLogs.length = 0;
+      savedQueries.clear();
     },
 
     user: {
@@ -170,6 +184,48 @@ export function createFakePrisma() {
       },
       async count({ where }: { where?: Record<string, unknown> } = {}) {
         return auditLogs.filter((l) => matchesAuditWhere(l, where)).length;
+      },
+    },
+
+    savedQuery: {
+      async count() {
+        return savedQueries.size;
+      },
+      async findMany({ orderBy, select }: { orderBy?: { position?: 'asc' | 'desc' }; select?: Select } = {}) {
+        let list = [...savedQueries.values()];
+        if (orderBy?.position === 'asc') list.sort((a, b) => a.position - b.position);
+        if (orderBy?.position === 'desc') list.sort((a, b) => b.position - a.position);
+        return list.map((q) => pick(q, select));
+      },
+      async findUnique({ where }: { where: { id: string } }) {
+        return savedQueries.get(where.id) ?? null;
+      },
+      async create({ data }: { data: Partial<FakeSavedQuery> }) {
+        const now = new Date();
+        const row: FakeSavedQuery = {
+          id: randomUUID(),
+          position: 0,
+          listColumns: [],
+          tabs: [],
+          autresVisibleToUser: false,
+          createdAt: now,
+          updatedAt: now,
+          ...data,
+        } as FakeSavedQuery;
+        savedQueries.set(row.id, row);
+        return row;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeSavedQuery> }) {
+        const row = savedQueries.get(where.id);
+        if (!row) throw new Error(`SavedQuery not found: ${where.id}`);
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
+      },
+      async delete({ where }: { where: { id: string } }) {
+        const row = savedQueries.get(where.id);
+        if (!row) throw new Error(`SavedQuery not found: ${where.id}`);
+        savedQueries.delete(where.id);
+        return row;
       },
     },
   };

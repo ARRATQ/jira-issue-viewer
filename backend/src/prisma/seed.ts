@@ -2,6 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { validatePasswordStrength } from '../lib/passwordPolicy';
+import { migrateLegacyQueryIfNeeded } from '../services/legacyQueryMigration';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -43,6 +44,7 @@ export async function seedAdmin(prisma: SeedablePrisma): Promise<void> {
 if (require.main === module) {
   const prisma = new PrismaClient();
   seedAdmin(prisma)
+    .then(() => migrateLegacyQueryIfNeeded())
     .catch((err) => {
       console.error(err);
       process.exitCode = 1;

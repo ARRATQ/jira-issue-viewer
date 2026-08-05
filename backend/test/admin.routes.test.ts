@@ -5,14 +5,29 @@ import { createFakePrisma } from './helpers/fakePrisma';
 const fakePrisma = createFakePrisma();
 vi.mock('../src/lib/prisma', () => ({ prisma: fakePrisma }));
 
+const fakeJiraClient = {
+  getFieldsMeta: vi.fn(),
+};
+
+vi.mock('../src/lib/jira', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/jira')>();
+  return {
+    ...actual,
+    JiraClient: vi.fn().mockImplementation(() => fakeJiraClient),
+  };
+});
+
 beforeAll(() => {
   process.env.JWT_SECRET = 'test-secret';
   process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
   process.env.ENCRYPTION_KEY = 'c'.repeat(64);
+  process.env.JIRA_URL = 'https://jira.example.com';
+  process.env.JIRA_PAT = 'test-pat';
 });
 
 beforeEach(() => {
   fakePrisma.reset();
+  vi.clearAllMocks();
 });
 
 const { createApp } = await import('../src/app');
@@ -27,6 +42,8 @@ describe('role gating on /api/admin/*', () => {
     ['/api/admin/config', 'get'],
     ['/api/admin/users', 'get'],
     ['/api/admin/audit-logs', 'get'],
+    ['/api/admin/queries', 'get'],
+    ['/api/admin/jira-fields', 'get'],
   ] as const)('rejects USER role on %s (403)', async (path) => {
     const res = await request(createApp())
       .get(path)
@@ -41,16 +58,15 @@ describe('role gating on /api/admin/*', () => {
 });
 
 describe('PUT /api/admin/config', () => {
-  it('updates JQL/URL, encrypts the PAT, never returns it, and logs UPDATE_CONFIG without the PAT value', async () => {
+  it('updates the URL, encrypts the PAT, never returns it, and logs UPDATE_CONFIG without the PAT value', async () => {
     const res = await request(createApp())
       .put('/api/admin/config')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ jiraUrl: 'https://jira.example.com', jql: 'project = PROJ', pat: 'super-secret-pat' });
+      .send({ jiraUrl: 'https://jira.example.com', pat: 'super-secret-pat' });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       jiraUrl: 'https://jira.example.com',
-      jql: 'project = PROJ',
       tlsRejectUnauthorized: true,
       patConfigured: true,
     });
@@ -159,7 +175,7 @@ describe('GET /api/admin/audit-logs', () => {
     await request(createApp())
       .put('/api/admin/config')
       .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
-      .send({ jql: 'project = X' });
+      .send({ jiraUrl: 'https://jira.example.com' });
 
     const res = await request(createApp())
       .get('/api/admin/audit-logs?action=CREATE_USER')
@@ -205,5 +221,152 @@ describe('PUT /api/admin/branding', () => {
 
     expect(res.status).toBe(400);
     expect(fakePrisma.__state.configs.get('app_logo')).toBeUndefined();
+  });
+});
+
+describe('/api/admin/queries CRUD', () => {
+  it('creates a query and logs SAVE_QUERY', async () => {
+    const res = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export', jql: 'project = EXP' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ name: 'Export', jql: 'project = EXP', tabs: [], listColumns: [] });
+
+    const logs = fakePrisma.__state.auditLogs;
+    expect(logs.find((l) => l.action === 'SAVE_QUERY' && l.entityKey === res.body.id)).toBeTruthy();
+  });
+
+  it('rejects creation with a missing name or JQL (400)', async () => {
+    const missingName = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ jql: 'project = EXP' });
+    expect(missingName.status).toBe(400);
+
+    const missingJql = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export' });
+    expect(missingJql.status).toBe(400);
+  });
+
+  it('lists queries', async () => {
+    await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export', jql: 'project = EXP' });
+
+    const res = await request(createApp())
+      .get('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.queries).toHaveLength(1);
+    expect(res.body.queries[0]).toMatchObject({ name: 'Export' });
+  });
+
+  it('updates a query (tabs, listColumns, autresVisibleToUser) and logs SAVE_QUERY', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export', jql: 'project = EXP' });
+
+    const res = await request(createApp())
+      .put(`/api/admin/queries/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({
+        name: 'Export renommé',
+        listColumns: [{ fieldName: 'Profil Export' }],
+        tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'GSM' }] }],
+        autresVisibleToUser: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Export renommé');
+    expect(res.body.listColumns).toEqual([{ fieldName: 'Profil Export' }]);
+    expect(res.body.autresVisibleToUser).toBe(true);
+
+    const logs = fakePrisma.__state.auditLogs;
+    expect(logs.find((l) => l.action === 'SAVE_QUERY' && l.entityKey === created.body.id)).toBeTruthy();
+  });
+
+  it('returns 404 when updating an unknown query', async () => {
+    const res = await request(createApp())
+      .put('/api/admin/queries/does-not-exist')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects an update that would empty the name or the JQL (400)', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export', jql: 'project = EXP' });
+
+    const emptyName = await request(createApp())
+      .put(`/api/admin/queries/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: '   ' });
+    expect(emptyName.status).toBe(400);
+
+    const emptyJql = await request(createApp())
+      .put(`/api/admin/queries/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ jql: '   ' });
+    expect(emptyJql.status).toBe(400);
+  });
+
+  it('deletes a query and logs DELETE_QUERY', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Export', jql: 'project = EXP' });
+
+    const res = await request(createApp())
+      .delete(`/api/admin/queries/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(204);
+
+    const listRes = await request(createApp())
+      .get('/api/admin/queries')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+    expect(listRes.body.queries).toHaveLength(0);
+
+    const logs = fakePrisma.__state.auditLogs;
+    expect(logs.find((l) => l.action === 'DELETE_QUERY' && l.entityKey === created.body.id)).toBeTruthy();
+  });
+
+  it('returns 404 when deleting an unknown query', async () => {
+    const res = await request(createApp())
+      .delete('/api/admin/queries/does-not-exist')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/admin/jira-fields', () => {
+  it('returns the Jira field catalog sorted by name', async () => {
+    fakeJiraClient.getFieldsMeta.mockResolvedValue(
+      new Map([
+        ['customfield_10020', 'Profil Export'],
+        ['summary', 'Summary'],
+        ['customfield_10021', 'Offre Export'],
+      ]),
+    );
+
+    const res = await request(createApp())
+      .get('/api/admin/jira-fields')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.fields).toEqual([
+      { id: 'customfield_10021', name: 'Offre Export' },
+      { id: 'customfield_10020', name: 'Profil Export' },
+      { id: 'summary', name: 'Summary' },
+    ]);
   });
 });

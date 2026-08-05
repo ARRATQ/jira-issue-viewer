@@ -2,24 +2,40 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { IssueList } from '../src/pages/IssueList';
 
 vi.mock('../src/lib/apiClient', () => ({
   apiFetch: vi.fn(),
+  apiFetchBlob: vi.fn(),
   ApiError: class ApiError extends Error {},
 }));
 
 import { apiFetch } from '../src/lib/apiClient';
 
+// Monte IssueList derrière la route paramétrée dont il lit `queryId`.
 function renderWithProviders(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <MemoryRouter initialEntries={['/queries/q1']}>
+        <Routes>
+          <Route path="/queries/:queryId" element={ui} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+const BASE_LIST = {
+  queryId: 'q1',
+  queryName: 'Export',
+  jql: 'project = PROJ',
+  listColumns: [],
+  tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] }],
+  autresVisibleToUser: false,
+  issues: [],
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,8 +44,8 @@ beforeEach(() => {
 describe('IssueList', () => {
   it('shows a loading state, then the issue table', async () => {
     vi.mocked(apiFetch).mockResolvedValue({
-      jql: 'project = PROJ',
-      issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' }],
+      ...BASE_LIST,
+      issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', extraFields: {} }],
     });
 
     renderWithProviders(<IssueList />);
@@ -41,7 +57,7 @@ describe('IssueList', () => {
   });
 
   it('shows an empty state when there are no issues', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({ jql: 'project = PROJ', issues: [] });
+    vi.mocked(apiFetch).mockResolvedValue({ ...BASE_LIST, issues: [] });
     renderWithProviders(<IssueList />);
     expect(await screen.findByText(/Aucune issue/i)).toBeInTheDocument();
   });
@@ -54,13 +70,13 @@ describe('IssueList', () => {
 
   it('opens the detail drawer with its fields when clicking an issue key', async () => {
     vi.mocked(apiFetch).mockImplementation((path: string) => {
-      if (path === '/api/issues') {
+      if (path === '/api/queries/q1/issues') {
         return Promise.resolve({
-          jql: 'project = PROJ',
-          issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task' }],
+          ...BASE_LIST,
+          issues: [{ key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', extraFields: {} }],
         });
       }
-      if (path === '/api/issues/PROJ-1') {
+      if (path === '/api/queries/q1/issues/PROJ-1') {
         return Promise.resolve({
           key: 'PROJ-1',
           summary: 'Ticket un',
@@ -83,25 +99,24 @@ describe('IssueList', () => {
     expect(screen.getByText('Acme')).toBeInTheDocument();
   });
 
-  it('shows Profil Export / Offre Export columns and filters the table by them', async () => {
+  it('renders the configured list columns and filters the table by them', async () => {
     vi.mocked(apiFetch).mockResolvedValue({
-      jql: 'project = PROJ',
+      ...BASE_LIST,
+      listColumns: [{ fieldName: 'Profil Export' }, { fieldName: 'Offre Export' }],
       issues: [
         {
           key: 'PROJ-1',
           summary: 'Ticket un',
           status: 'Open',
           issueType: 'Task',
-          profilExport: 'Débutant',
-          offreExport: 'Premium',
+          extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
         },
         {
           key: 'PROJ-2',
           summary: 'Ticket deux',
           status: 'Done',
           issueType: 'Task',
-          profilExport: 'Avancé',
-          offreExport: 'Standard',
+          extraFields: { 'Profil Export': 'Avancé', 'Offre Export': 'Standard' },
         },
       ],
     });

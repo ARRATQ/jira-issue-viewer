@@ -17,7 +17,7 @@ beforeEach(() => {
   delete process.env.JIRA_TLS_REJECT_UNAUTHORIZED;
 });
 
-const { setConfigValue, getConfigValue, getPublicConfig, getJiraClientConfig, getJql, getBranding, setBranding } =
+const { setConfigValue, getConfigValue, getPublicConfig, getJiraClientConfig, getBranding, setBranding } =
   await import('../src/services/config');
 
 describe('config service', () => {
@@ -32,11 +32,6 @@ describe('config service', () => {
     await setConfigValue('jql', 'project = PROJ');
     const row = fakePrisma.__state.configs.get('jql');
     expect(row?.value).toBe('project = PROJ');
-  });
-
-  it('getJql falls back to JIRA_JQL env var when unset in DB', async () => {
-    process.env.JIRA_JQL = 'project = ENV_FALLBACK';
-    expect(await getJql()).toBe('project = ENV_FALLBACK');
   });
 
   it('getPublicConfig never exposes the PAT value, only whether it is configured', async () => {

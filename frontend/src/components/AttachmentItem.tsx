@@ -5,6 +5,7 @@ import type { AttachmentMeta } from '../types/issue';
 import './AttachmentItem.css';
 
 interface AttachmentItemProps {
+  queryId: string;
   issueKey: string;
   attachment: AttachmentMeta;
 }
@@ -15,7 +16,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-export function AttachmentItem({ issueKey, attachment }: AttachmentItemProps): ReactElement {
+export function AttachmentItem({ queryId, issueKey, attachment }: AttachmentItemProps): ReactElement {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export function AttachmentItem({ issueKey, attachment }: AttachmentItemProps): R
   const isImage = attachment.mimeType.startsWith('image/');
   const isPdf = attachment.mimeType === 'application/pdf';
   const canPreview = isImage || isPdf;
-  const path = `/api/issues/${issueKey}/attachments/${attachment.id}`;
+  const path = `/api/queries/${queryId}/issues/${issueKey}/attachments/${attachment.id}`;
 
   // Révoque l'URL d'objet précédente à chaque changement, et au démontage
   // (évite de fuir la mémoire des blobs chargés).

@@ -12,7 +12,9 @@ export type AuditAction =
   | 'CREATE_USER'
   | 'UPDATE_USER'
   | 'DEACTIVATE_USER'
-  | 'CHANGE_PASSWORD';
+  | 'CHANGE_PASSWORD'
+  | 'SAVE_QUERY'
+  | 'DELETE_QUERY';
 
 export interface LogActionParams {
   userId: string;

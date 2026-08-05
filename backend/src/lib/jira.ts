@@ -47,10 +47,10 @@ export interface JiraIssueBase {
   issueType: string | null;
 }
 
-// Vue liste : quelques champs métier supplémentaires affichés en colonnes.
+// Vue liste : champs métier supplémentaires affichés en colonnes, définis
+// par requête (SavedQuery.listColumns) — clé = nom de champ Jira demandé.
 export interface JiraIssueSummary extends JiraIssueBase {
-  profilExport: string | null;
-  offreExport: string | null;
+  extraFields: Record<string, string | null>;
 }
 
 // Vue détail : tous les champs renseignés (dont Profil/Offre Export s'ils
@@ -150,13 +150,6 @@ function extractUserIdentity(raw: unknown): { id: string | null; displayName: st
   return { id, displayName };
 }
 
-// Champs additionnels affichés en colonnes dans la liste des issues, en plus
-// des champs standard (résumé/statut/type).
-const LIST_EXTRA_FIELDS = {
-  profilExport: 'Profil Export',
-  offreExport: 'Offre Export',
-} as const;
-
 const SEARCH_PAGE_SIZE = 100;
 // Garde-fou : évite de boucler indéfiniment sur un JQL retournant un très
 // grand nombre de résultats.
@@ -235,12 +228,15 @@ export class JiraClient {
 
   // Récupère TOUTES les issues correspondant au JQL (pagine automatiquement
   // au-delà de la limite par page de l'API Jira, jusqu'à SEARCH_MAX_ISSUES),
-  // avec les champs standard plus les champs métier affichés dans la liste.
-  async searchIssues(jql: string): Promise<JiraIssueSummary[]> {
-    const fieldsMeta = await this.getFieldsMeta();
-    const profilExportId = findFieldIdByName(fieldsMeta, LIST_EXTRA_FIELDS.profilExport);
-    const offreExportId = findFieldIdByName(fieldsMeta, LIST_EXTRA_FIELDS.offreExport);
-    const extraIds = [profilExportId, offreExportId].filter((id): id is string => id !== null);
+  // avec les champs standard plus les champs métier de `extraFieldNames`
+  // (colonnes de liste configurées pour la requête sauvegardée courante).
+  async searchIssues(jql: string, extraFieldNames: string[] = []): Promise<JiraIssueSummary[]> {
+    const fieldsMeta = extraFieldNames.length > 0 ? await this.getFieldsMeta() : new Map<string, string>();
+    const resolvedExtraFields = extraFieldNames.map((name) => ({
+      name,
+      id: findFieldIdByName(fieldsMeta, name),
+    }));
+    const extraIds = resolvedExtraFields.filter((f): f is { name: string; id: string } => f.id !== null).map((f) => f.id);
     const fields = ['summary', 'status', 'issuetype', ...extraIds].join(',');
 
     const issues: JiraIssueSummary[] = [];
@@ -259,13 +255,16 @@ export class JiraClient {
       };
 
       for (const issue of data.issues) {
+        const extraFields: Record<string, string | null> = {};
+        for (const f of resolvedExtraFields) {
+          extraFields[f.name] = f.id ? extractScalarFieldValue(issue.fields[f.id]) : null;
+        }
         issues.push({
           key: issue.key,
           summary: String(issue.fields.summary ?? ''),
           status: extractScalarFieldValue(issue.fields.status),
           issueType: extractScalarFieldValue(issue.fields.issuetype),
-          profilExport: profilExportId ? extractScalarFieldValue(issue.fields[profilExportId]) : null,
-          offreExport: offreExportId ? extractScalarFieldValue(issue.fields[offreExportId]) : null,
+          extraFields,
         });
       }
 

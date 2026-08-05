@@ -33,11 +33,13 @@ test.describe('confidentialité à la connexion + changement de mot de passe', (
       });
     });
 
-    await page.route('**/api/issues', async (route) => {
+    // La racine redirige vers la première requête ; une liste vide suffit ici,
+    // ces parcours ne dépendent pas du contenu de la liste.
+    await page.route('**/api/queries', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ jql: 'project = PROJ', issues: [] }),
+        body: JSON.stringify({ queries: [] }),
       });
     });
   });

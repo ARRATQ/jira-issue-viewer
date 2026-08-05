@@ -1,0 +1,145 @@
+.admin-queries h1 {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-4);
+}
+
+.admin-queries h2 {
+  font-size: var(--text-lg);
+  margin: var(--space-8) 0 var(--space-4);
+}
+
+.admin-queries__error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.admin-queries__table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.admin-queries__table th,
+.admin-queries__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  vertical-align: middle;
+}
+
+.admin-queries__table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  background: var(--color-surface-sunken);
+}
+
+.admin-queries__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-queries__jql {
+  display: inline-block;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.admin-queries__order {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.admin-queries__order button,
+.admin-queries__delete {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.admin-queries__order button:hover:not(:disabled),
+.admin-queries__delete:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.admin-queries__order button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.admin-queries__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  white-space: nowrap;
+}
+
+.admin-queries__actions a {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.admin-queries__delete {
+  color: var(--color-danger);
+}
+
+.admin-queries__delete:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: white;
+  border-color: var(--color-danger);
+}
+
+.admin-queries__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 32rem;
+}
+
+.admin-queries__form label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-top: var(--space-3);
+}
+
+.admin-queries__form input,
+.admin-queries__form textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.admin-queries__form button[type='submit'] {
+  align-self: flex-start;
+  margin-top: var(--space-6);
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-queries__form button[type='submit']:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.admin-queries__form button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
