@@ -5,9 +5,19 @@ import { authMiddleware } from '../middleware/auth';
 import { requireAdmin } from '../middleware/roles';
 import { asyncHandler } from '../lib/asyncHandler';
 import { prisma } from '../lib/prisma';
-import { getBranding, getPublicConfig, setBranding, setConfigValue } from '../services/config';
+import { getBranding, getJiraClientConfig, getPublicConfig, setBranding, setConfigValue } from '../services/config';
 import { logAction } from '../services/audit';
 import { validatePasswordStrength } from '../lib/passwordPolicy';
+import { JiraClient } from '../lib/jira';
+import {
+  createQuery,
+  deleteQuery,
+  getQueryById,
+  listQueriesFull,
+  updateQuery,
+  type FieldRef,
+  type QueryTab,
+} from '../services/savedQueries';
 
 export const adminRouter = Router();
 
@@ -22,7 +32,9 @@ const USER_SELECT = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
-// --- Config Jira + JQL ---
+// --- Config Jira (URL/PAT/TLS) ---
+// Le JQL n'est plus configuré ici : voir la section "Requêtes sauvegardées"
+// plus bas, chaque requête portant désormais le sien.
 
 adminRouter.get(
   '/config',
@@ -36,7 +48,6 @@ adminRouter.put(
   asyncHandler(async (req, res) => {
     const body = req.body as {
       jiraUrl?: string;
-      jql?: string;
       pat?: string;
       tlsRejectUnauthorized?: boolean;
     };
@@ -45,10 +56,6 @@ adminRouter.put(
     if (body.jiraUrl !== undefined) {
       await setConfigValue('jira_url', body.jiraUrl);
       changedKeys.push('jira_url');
-    }
-    if (body.jql !== undefined) {
-      await setConfigValue('jql', body.jql);
-      changedKeys.push('jql');
     }
     if (body.pat !== undefined && body.pat.length > 0) {
       await setConfigValue('jira_pat', body.pat, { encrypted: true });
@@ -192,6 +199,131 @@ adminRouter.patch(
     });
 
     res.json(user);
+  }),
+);
+
+// --- Requêtes JQL sauvegardées ---
+
+interface QueryRequestBody {
+  name?: string;
+  jql?: string;
+  position?: number;
+  listColumns?: FieldRef[];
+  tabs?: QueryTab[];
+  autresVisibleToUser?: boolean;
+}
+
+adminRouter.get(
+  '/queries',
+  asyncHandler(async (_req, res) => {
+    res.json({ queries: await listQueriesFull() });
+  }),
+);
+
+adminRouter.post(
+  '/queries',
+  asyncHandler(async (req, res) => {
+    const body = req.body as QueryRequestBody;
+    if (!body.name || !body.name.trim()) {
+      res.status(400).json({ error: 'Le nom de la requête est requis' });
+      return;
+    }
+    if (!body.jql || !body.jql.trim()) {
+      res.status(400).json({ error: 'Le JQL est requis' });
+      return;
+    }
+
+    const query = await createQuery({
+      name: body.name,
+      jql: body.jql,
+      position: body.position,
+      listColumns: body.listColumns,
+      tabs: body.tabs,
+      autresVisibleToUser: body.autresVisibleToUser,
+    });
+
+    await logAction({
+      userId: req.user!.sub,
+      action: 'SAVE_QUERY',
+      entityType: 'saved_query',
+      entityKey: query.id,
+      details: { name: query.name, created: true },
+      req,
+    });
+
+    res.status(201).json(query);
+  }),
+);
+
+adminRouter.put(
+  '/queries/:queryId',
+  asyncHandler(async (req, res) => {
+    const existing = await getQueryById(req.params.queryId!);
+    if (!existing) {
+      res.status(404).json({ error: 'Requête introuvable' });
+      return;
+    }
+
+    const body = req.body as QueryRequestBody;
+    if (body.name !== undefined && !body.name.trim()) {
+      res.status(400).json({ error: 'Le nom de la requête ne peut pas être vide' });
+      return;
+    }
+    if (body.jql !== undefined && !body.jql.trim()) {
+      res.status(400).json({ error: 'Le JQL ne peut pas être vide' });
+      return;
+    }
+
+    const query = await updateQuery(req.params.queryId!, body);
+
+    await logAction({
+      userId: req.user!.sub,
+      action: 'SAVE_QUERY',
+      entityType: 'saved_query',
+      entityKey: query.id,
+      details: { name: query.name, changed: Object.keys(body) },
+      req,
+    });
+
+    res.json(query);
+  }),
+);
+
+adminRouter.delete(
+  '/queries/:queryId',
+  asyncHandler(async (req, res) => {
+    const existing = await getQueryById(req.params.queryId!);
+    if (!existing) {
+      res.status(404).json({ error: 'Requête introuvable' });
+      return;
+    }
+
+    await deleteQuery(req.params.queryId!);
+
+    await logAction({
+      userId: req.user!.sub,
+      action: 'DELETE_QUERY',
+      entityType: 'saved_query',
+      entityKey: existing.id,
+      details: { name: existing.name },
+      req,
+    });
+
+    res.status(204).end();
+  }),
+);
+
+// --- Catalogue de champs Jira (alimente le sélecteur de champs admin) ---
+
+adminRouter.get(
+  '/jira-fields',
+  asyncHandler(async (_req, res) => {
+    const client = new JiraClient(await getJiraClientConfig());
+    const fieldsMeta = await client.getFieldsMeta();
+    const fields = [...fieldsMeta.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ fields });
   }),
 );
 
