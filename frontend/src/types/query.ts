@@ -24,3 +24,23 @@ export interface SavedQuerySummary {
 export interface QueriesResponse {
   queries: SavedQuerySummary[];
 }
+
+// Enregistrement complet d'une requête, tel que renvoyé par les endpoints
+// d'administration (GET/POST/PUT /api/admin/queries).
+export interface SavedQuery {
+  id: string;
+  name: string;
+  jql: string;
+  position: number;
+  listColumns: FieldRef[];
+  tabs: QueryTab[];
+  autresVisibleToUser: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Champ du catalogue Jira (GET /api/admin/jira-fields), pour le sélecteur.
+export interface JiraFieldMeta {
+  id: string;
+  name: string;
+}

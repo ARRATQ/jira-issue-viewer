@@ -10,6 +10,8 @@ import { QueryIndex } from './pages/QueryIndex';
 import { AccountSettings } from './pages/AccountSettings';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminConfig } from './pages/admin/AdminConfig';
+import { AdminQueries } from './pages/admin/AdminQueries';
+import { AdminQueryEditor } from './pages/admin/AdminQueryEditor';
 import { AdminBranding } from './pages/admin/AdminBranding';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminAuditLogs } from './pages/admin/AdminAuditLogs';
@@ -40,6 +42,8 @@ export function App(): ReactElement {
             >
               <Route index element={<Navigate to="config" replace />} />
               <Route path="config" element={<AdminConfig />} />
+              <Route path="queries" element={<AdminQueries />} />
+              <Route path="queries/:queryId" element={<AdminQueryEditor />} />
               <Route path="branding" element={<AdminBranding />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="audit-logs" element={<AdminAuditLogs />} />
