@@ -4,7 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { authRouter } from './routes/auth';
-import { issuesRouter } from './routes/issues';
+import { queriesRouter } from './routes/queries';
 import { adminRouter } from './routes/admin';
 import { brandingRouter } from './routes/branding';
 import { JiraApiError } from './lib/jira';
@@ -25,7 +25,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/branding', brandingRouter);
-  app.use('/api/issues', issuesRouter);
+  app.use('/api/queries', queriesRouter);
   app.use('/api/admin', adminRouter);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
