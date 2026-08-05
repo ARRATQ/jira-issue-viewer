@@ -5,8 +5,9 @@ import { test, expect } from '@playwright/test';
 // ni d'un accès Jira réel — utile tant que ces dépendances externes ne sont
 // pas disponibles dans l'environnement d'exécution (voir docs/planning).
 const USER = { id: 'u1', email: 'user@example.com', name: 'Jane Doe', role: 'USER' };
+const QUERY_ID = 'q1';
 
-test.describe('login → liste des issues → détail → téléchargement de pièce jointe', () => {
+test.describe('login → navigation par requête → liste → détail → téléchargement', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/auth/login', async (route) => {
       await route.fulfill({
@@ -24,20 +25,32 @@ test.describe('login → liste des issues → détail → téléchargement de pi
       });
     });
 
-    await page.route('**/api/issues', async (route) => {
+    // Navigation : une seule requête sauvegardée, vers laquelle la racine redirige.
+    await page.route('**/api/queries', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ queries: [{ id: QUERY_ID, name: 'Requête 1', position: 0 }] }),
+      });
+    });
+
+    await page.route(`**/api/queries/${QUERY_ID}/issues`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          queryId: QUERY_ID,
+          queryName: 'Requête 1',
           jql: 'project = PROJ ORDER BY created DESC',
-          issues: [
-            { key: 'PROJ-1', summary: 'Cahier des charges initial', status: 'Open', issueType: 'Task' },
-          ],
+          listColumns: [],
+          tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] }],
+          autresVisibleToUser: false,
+          issues: [{ key: 'PROJ-1', summary: 'Cahier des charges initial', status: 'Open', issueType: 'Task', extraFields: {} }],
         }),
       });
     });
 
-    await page.route('**/api/issues/PROJ-1', async (route) => {
+    await page.route(`**/api/queries/${QUERY_ID}/issues/PROJ-1`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -48,28 +61,22 @@ test.describe('login → liste des issues → détail → téléchargement de pi
           issueType: 'Task',
           fields: [{ id: 'customfield_10010', name: 'Raison Sociale', value: 'Solution X' }],
           attachments: [
-            {
-              id: '1001',
-              filename: 'cahier-des-charges.pdf',
-              mimeType: 'application/pdf',
-              size: 12,
-              contentUrl: 'ignored-by-frontend',
-            },
+            { id: '1001', filename: 'cahier-des-charges.pdf', mimeType: 'application/pdf', size: 12, contentUrl: 'ignored-by-frontend', authorId: 'rep1', authorName: 'Jane Doe' },
           ],
+          // USER ne voit que les PJ déposées par le rapporteur : l'auteur de la
+          // PJ ci-dessus correspond au rapporteur pour qu'elle reste visible.
+          reporterId: 'rep1',
+          reporterName: 'Jane Doe',
         }),
       });
     });
 
-    await page.route('**/api/issues/PROJ-1/attachments/1001', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/pdf',
-        body: Buffer.from('%PDF-1.4 fake-content'),
-      });
+    await page.route(`**/api/queries/${QUERY_ID}/issues/PROJ-1/attachments/1001`, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.4 fake-content') });
     });
   });
 
-  test('logs in, opens the issue list, opens a ticket in the drawer, and downloads its attachment', async ({
+  test('logs in, lands on the query view, opens a ticket in the drawer, and downloads its attachment', async ({
     page,
   }) => {
     await page.goto('/login');
@@ -89,7 +96,7 @@ test.describe('login → liste des issues → détail → téléchargement de pi
     await expect(drawer.getByText('Raison Sociale')).toBeVisible();
     await expect(drawer.getByText('Solution X')).toBeVisible();
 
-    // Rôle USER : l'onglet "Autres" (champs non catégorisés) doit être masqué.
+    // Rôle USER : l'onglet "Autres" (autresVisibleToUser=false) doit être masqué.
     await expect(drawer.getByRole('button', { name: 'Autres' })).not.toBeVisible();
 
     const downloadPromise = page.waitForEvent('download');

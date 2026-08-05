@@ -53,12 +53,10 @@ test.describe('parcours admin : personnalisation (nom + logo)', () => {
       });
     });
 
-    await page.route('**/api/issues', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ jql: 'project = PROJ', issues: [] }),
-      });
+    // La racine redirige vers la première requête ; une liste vide suffit,
+    // ce parcours ne dépend pas du contenu de la liste.
+    await page.route('**/api/queries', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ queries: [] }) });
     });
 
     await page.goto('/login');
