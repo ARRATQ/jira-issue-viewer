@@ -43,7 +43,13 @@ authRouter.post('/login', async (req, res) => {
   res.json({
     accessToken,
     refreshToken,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    },
   });
 });
 
@@ -98,7 +104,9 @@ authRouter.patch(
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    // L'utilisateur a choisi lui-même son mot de passe : lève l'obligation de
+    // changement à la connexion (le cas échéant).
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash, mustChangePassword: false } });
 
     await logAction({ userId: user.id, action: 'CHANGE_PASSWORD', req });
 

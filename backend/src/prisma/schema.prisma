@@ -20,6 +20,11 @@ model User {
   name         String
   role         Role       @default(USER)
   active       Boolean    @default(true)
+  // Force l'utilisateur à définir son propre mot de passe à la prochaine
+  // connexion. Positionné à true quand un admin crée le compte ou réinitialise
+  // le mot de passe (mot de passe temporaire), remis à false dès que
+  // l'utilisateur change lui-même son mot de passe.
+  mustChangePassword Boolean @default(false)
   auditLogs    AuditLog[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt

@@ -3,6 +3,9 @@ export interface AuthUser {
   email: string;
   name: string;
   role: 'ADMIN' | 'USER';
+  // Optionnel côté type pour ne pas casser les usages existants : renvoyé par
+  // /api/auth/login, absent (⇒ falsy ⇒ pas de contrainte) partout ailleurs.
+  mustChangePassword?: boolean;
 }
 
 export interface StoredAuth {
@@ -46,6 +49,13 @@ export function setAuth(auth: StoredAuth | null): void {
 export function setAccessToken(accessToken: string): void {
   if (!current) return;
   setAuth({ ...current, accessToken });
+}
+
+// Lève l'obligation de changement de mot de passe dans l'état stocké, une fois
+// que l'utilisateur l'a effectué (le backend a déjà remis le drapeau à false).
+export function clearMustChangePassword(): void {
+  if (!current) return;
+  setAuth({ ...current, user: { ...current.user, mustChangePassword: false } });
 }
 
 export function subscribe(listener: Listener): () => void {

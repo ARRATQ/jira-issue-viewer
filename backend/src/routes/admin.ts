@@ -29,6 +29,7 @@ const USER_SELECT = {
   name: true,
   role: true,
   active: true,
+  mustChangePassword: true,
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
@@ -121,11 +122,12 @@ adminRouter.get(
 adminRouter.post(
   '/users',
   asyncHandler(async (req, res) => {
-    const { email, name, password, role } = req.body as {
+    const { email, name, password, role, mustChangePassword } = req.body as {
       email?: string;
       name?: string;
       password?: string;
       role?: Role;
+      mustChangePassword?: boolean;
     };
     if (!email || !name || !password) {
       res.status(400).json({ error: 'email, name et password sont requis' });
@@ -139,8 +141,11 @@ adminRouter.post(
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    // Mot de passe défini par l'admin : par défaut l'utilisateur devra le
+    // remplacer à sa première connexion ; l'admin peut lever l'exigence via la
+    // case à cocher du formulaire.
     const user = await prisma.user.create({
-      data: { email, name, passwordHash, role: role ?? 'USER' },
+      data: { email, name, passwordHash, role: role ?? 'USER', mustChangePassword: mustChangePassword ?? true },
       select: USER_SELECT,
     });
 
@@ -160,11 +165,12 @@ adminRouter.post(
 adminRouter.patch(
   '/users/:id',
   asyncHandler(async (req, res) => {
-    const { name, role, active, password } = req.body as {
+    const { name, role, active, password, mustChangePassword } = req.body as {
       name?: string;
       role?: Role;
       active?: boolean;
       password?: string;
+      mustChangePassword?: boolean;
     };
 
     if (password) {
@@ -180,7 +186,15 @@ adminRouter.patch(
     if (name !== undefined) data.name = name;
     if (role !== undefined) data.role = role;
     if (active !== undefined) data.active = active;
-    if (password) data.passwordHash = await bcrypt.hash(password, 12);
+    if (password) {
+      // Réinitialisation par l'admin = mot de passe temporaire : on force son
+      // remplacement à la prochaine connexion de l'utilisateur.
+      data.passwordHash = await bcrypt.hash(password, 12);
+      data.mustChangePassword = true;
+    }
+    // La case à cocher de la liste permet d'exiger (ou de lever) un changement
+    // de mot de passe sans réinitialiser celui-ci ; explicite ⇒ prioritaire.
+    if (mustChangePassword !== undefined) data.mustChangePassword = mustChangePassword;
 
     const user = await prisma.user.update({
       where: { id: req.params.id },

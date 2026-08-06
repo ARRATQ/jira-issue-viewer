@@ -15,7 +15,7 @@ describe('seedAdmin', () => {
     process.env.ADMIN_PASSWORD = 'Str0ng!Pass';
     await seedAdmin(fakePrisma);
     const created = [...fakePrisma.__state.users.values()].find((u) => u.email === 'admin@example.com');
-    expect(created).toMatchObject({ role: 'ADMIN', active: true });
+    expect(created).toMatchObject({ role: 'ADMIN', active: true, mustChangePassword: true });
   });
 
   it('throws when ADMIN_PASSWORD does not meet the strength policy and no admin exists yet', async () => {

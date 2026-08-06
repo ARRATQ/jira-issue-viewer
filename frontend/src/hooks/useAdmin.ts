@@ -58,6 +58,7 @@ export interface CreateUserInput {
   name: string;
   password: string;
   role: 'ADMIN' | 'USER';
+  mustChangePassword?: boolean;
 }
 
 export function useCreateUser() {
@@ -75,6 +76,7 @@ export interface UpdateUserInput {
   role?: 'ADMIN' | 'USER';
   active?: boolean;
   password?: string;
+  mustChangePassword?: boolean;
 }
 
 export function useUpdateUser() {

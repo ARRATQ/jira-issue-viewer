@@ -35,7 +35,9 @@ export async function seedAdmin(prisma: SeedablePrisma): Promise<void> {
 
   const passwordHash = await bcrypt.hash(password, 12);
   await prisma.user.create({
-    data: { email, passwordHash, name, role: 'ADMIN', active: true },
+    // Compte admin initial (installation neuve) : le mot de passe vient de
+    // l'environnement, il doit être remplacé à la première connexion.
+    data: { email, passwordHash, name, role: 'ADMIN', active: true, mustChangePassword: true },
   });
   console.log(`Seeded initial admin account: ${email}`);
 }
