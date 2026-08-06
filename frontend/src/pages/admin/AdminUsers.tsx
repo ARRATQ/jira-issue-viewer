@@ -14,6 +14,7 @@ export function AdminUsers(): ReactElement {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<AdminUser['role']>('USER');
+  const [mustChangePassword, setMustChangePassword] = useState(true);
 
   if (isLoading) return <p>Chargement des comptes…</p>;
   if (isError) {
@@ -26,11 +27,12 @@ export function AdminUsers(): ReactElement {
 
   async function handleCreate(event: FormEvent): Promise<void> {
     event.preventDefault();
-    await createUser.mutateAsync({ email, name, password, role });
+    await createUser.mutateAsync({ email, name, password, role, mustChangePassword });
     setEmail('');
     setName('');
     setPassword('');
     setRole('USER');
+    setMustChangePassword(true);
   }
 
   return (
@@ -45,6 +47,7 @@ export function AdminUsers(): ReactElement {
               <th>Nom</th>
               <th>Rôle</th>
               <th>Statut</th>
+              <th>Changement MDP</th>
               <th />
             </tr>
           </thead>
@@ -64,6 +67,18 @@ export function AdminUsers(): ReactElement {
                   </select>
                 </td>
                 <td>{user.active ? 'Actif' : 'Désactivé'}</td>
+                <td>
+                  <label className="admin-users__mcp">
+                    <input
+                      type="checkbox"
+                      aria-label={`Exiger un changement de mot de passe pour ${user.email}`}
+                      checked={user.mustChangePassword}
+                      disabled={updateUser.isPending}
+                      onChange={(e) => updateUser.mutate({ id: user.id, mustChangePassword: e.target.checked })}
+                    />
+                    Exiger
+                  </label>
+                </td>
                 <td>
                   <button
                     type="button"
@@ -102,6 +117,15 @@ export function AdminUsers(): ReactElement {
           <option value="USER">USER</option>
           <option value="ADMIN">ADMIN</option>
         </select>
+
+        <label className="admin-users__checkbox">
+          <input
+            type="checkbox"
+            checked={mustChangePassword}
+            onChange={(e) => setMustChangePassword(e.target.checked)}
+          />
+          Exiger un changement de mot de passe à la première connexion
+        </label>
 
         {createUser.isError && (
           <p role="alert" className="admin-users__error">

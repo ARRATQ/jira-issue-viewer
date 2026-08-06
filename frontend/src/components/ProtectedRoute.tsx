@@ -14,6 +14,11 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
+  // Tant que l'utilisateur n'a pas remplacé son mot de passe temporaire, il est
+  // confiné à l'écran dédié — aucune autre vue protégée n'est accessible.
+  if (user?.mustChangePassword) {
+    return <Navigate to="/force-password-change" replace />;
+  }
   if (requireAdmin && user?.role !== 'ADMIN') {
     return <Navigate to="/" replace />;
   }

@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { IssueList } from './pages/IssueList';
 import { QueryIndex } from './pages/QueryIndex';
+import { ForcePasswordChange } from './pages/ForcePasswordChange';
 import { AccountSettings } from './pages/AccountSettings';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminConfig } from './pages/admin/AdminConfig';
@@ -22,6 +23,7 @@ export function App(): ReactElement {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/force-password-change" element={<ForcePasswordChange />} />
           <Route
             element={
               <ProtectedRoute>

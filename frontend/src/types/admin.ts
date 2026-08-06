@@ -17,6 +17,7 @@ export interface AdminUser {
   name: string;
   role: 'ADMIN' | 'USER';
   active: boolean;
+  mustChangePassword: boolean;
   createdAt: string;
 }
 

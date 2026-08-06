@@ -14,6 +14,7 @@ export interface FakeUser {
   name: string;
   role: 'ADMIN' | 'USER';
   active: boolean;
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -105,6 +106,7 @@ export function createFakePrisma() {
           id: randomUUID(),
           active: true,
           role: 'USER',
+          mustChangePassword: false,
           createdAt: now,
           updatedAt: now,
           ...data,

@@ -90,11 +90,53 @@ describe('users admin endpoints', () => {
       .send({ email: 'new@example.com', name: 'New User', password: 'P@ssw0rd123', role: 'USER' });
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ email: 'new@example.com', role: 'USER', active: true });
+    expect(res.body).toMatchObject({ email: 'new@example.com', role: 'USER', active: true, mustChangePassword: true });
     expect(res.body.passwordHash).toBeUndefined();
 
     const logs = fakePrisma.__state.auditLogs;
     expect(logs.find((l) => l.action === 'CREATE_USER')).toBeTruthy();
+  });
+
+  it('honours mustChangePassword=false when the admin unchecks it at creation', async () => {
+    const res = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'nochange@example.com', name: 'No Change', password: 'P@ssw0rd123', mustChangePassword: false });
+
+    expect(res.status).toBe(201);
+    expect(res.body.mustChangePassword).toBe(false);
+  });
+
+  it('lets an admin require a password change without resetting the password', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'rotate@example.com', name: 'Rotate', password: 'P@ssw0rd123', mustChangePassword: false });
+    expect(created.body.mustChangePassword).toBe(false);
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ mustChangePassword: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mustChangePassword).toBe(true);
+  });
+
+  it('forces a password change after an admin resets the password', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'reset2@example.com', name: 'Reset Two', password: 'P@ssw0rd123', mustChangePassword: false });
+    expect(created.body.mustChangePassword).toBe(false);
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ password: 'N3w!Temp0rary' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mustChangePassword).toBe(true);
   });
 
   it('rejects user creation with missing fields (400)', async () => {
