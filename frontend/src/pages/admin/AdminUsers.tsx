@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import { useAdminUsers, useCreateUser, useUpdateUser } from '../../hooks/useAdmin';
 import { ApiError } from '../../lib/apiClient';
 import type { AdminUser } from '../../types/admin';
+import { UserEditPanel } from './UserEditPanel';
 import './AdminUsers.css';
 
 export function AdminUsers(): ReactElement {
@@ -15,6 +16,8 @@ export function AdminUsers(): ReactElement {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<AdminUser['role']>('USER');
   const [mustChangePassword, setMustChangePassword] = useState(true);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const closeEditPanel = useCallback(() => setEditingUserId(null), []);
 
   if (isLoading) return <p>Chargement des comptes…</p>;
   if (isError) {
@@ -24,6 +27,8 @@ export function AdminUsers(): ReactElement {
       </p>
     );
   }
+
+  const editingUser = data?.users.find((u) => u.id === editingUserId);
 
   async function handleCreate(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -79,7 +84,14 @@ export function AdminUsers(): ReactElement {
                     Exiger
                   </label>
                 </td>
-                <td>
+                <td className="admin-users__row-actions">
+                  <button
+                    type="button"
+                    aria-label={`Modifier ${user.email}`}
+                    onClick={() => setEditingUserId(user.id)}
+                  >
+                    Modifier
+                  </button>
                   <button
                     type="button"
                     onClick={() => updateUser.mutate({ id: user.id, active: !user.active })}
@@ -93,6 +105,8 @@ export function AdminUsers(): ReactElement {
           </tbody>
         </table>
       </div>
+
+      {editingUser && <UserEditPanel key={editingUser.id} user={editingUser} onClose={closeEditPanel} />}
 
       <h2>Créer un compte</h2>
       <form className="admin-users__form" onSubmit={(e) => void handleCreate(e)}>

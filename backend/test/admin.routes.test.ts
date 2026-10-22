@@ -206,6 +206,113 @@ describe('users admin endpoints', () => {
     const logs = fakePrisma.__state.auditLogs;
     expect(logs.find((l) => l.action === 'UPDATE_USER')).toBeTruthy();
   });
+
+  it('lets an admin edit the email and name of a user', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'before@example.com', name: 'Before', password: 'P@ssw0rd123' });
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: '  after@example.com ', name: '  After  ' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe('after@example.com');
+    expect(res.body.name).toBe('After');
+  });
+
+  it('rejects an email already used by another account (409)', async () => {
+    await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'taken@example.com', name: 'Taken', password: 'P@ssw0rd123' });
+    const other = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'other@example.com', name: 'Other', password: 'P@ssw0rd123' });
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${other.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'taken@example.com' });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('accepts re-submitting the user own email unchanged', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'same@example.com', name: 'Same', password: 'P@ssw0rd123' });
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'same@example.com', name: 'Same Renamed' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it.each([
+    [{ email: 'not-an-email' }],
+    [{ email: '' }],
+    [{ name: '   ' }],
+  ])('rejects invalid profile data %j (400)', async (body) => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'invalid@example.com', name: 'Invalid', password: 'P@ssw0rd123' });
+
+    const res = await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send(body);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when editing an unknown user', async () => {
+    const res = await request(createApp())
+      .patch('/api/admin/users/does-not-exist')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ name: 'Ghost' });
+    expect(res.status).toBe(404);
+  });
+
+  it('logs RESET_PASSWORD without the password when an admin resets it', async () => {
+    const created = await request(createApp())
+      .post('/api/admin/users')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ email: 'auditreset@example.com', name: 'Audit Reset', password: 'P@ssw0rd123' });
+
+    await request(createApp())
+      .patch(`/api/admin/users/${created.body.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .send({ password: 'N3w!Temp0rary' });
+
+    const log = fakePrisma.__state.auditLogs.find((l) => l.action === 'RESET_PASSWORD');
+    expect(log).toBeTruthy();
+    expect(JSON.stringify(log)).not.toContain('N3w!Temp0rary');
+  });
+
+  it.each([[{ active: false }], [{ role: 'USER' }]])(
+    'prevents an admin from locking themselves out with %j (400)',
+    async (body) => {
+      const self = await request(createApp())
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+        .send({ email: 'self@example.com', name: 'Self', password: 'P@ssw0rd123', role: 'ADMIN' });
+
+      const res = await request(createApp())
+        .patch(`/api/admin/users/${self.body.id}`)
+        .set('Authorization', `Bearer ${tokenFor('ADMIN', self.body.id)}`)
+        .send(body);
+
+      expect(res.status).toBe(400);
+    },
+  );
 });
 
 describe('GET /api/admin/audit-logs', () => {
