@@ -23,6 +23,9 @@ export const adminRouter = Router();
 
 adminRouter.use(authMiddleware, requireAdmin);
 
+// Volontairement simple : on vérifie la forme générale, pas la délivrabilité.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const USER_SELECT = {
   id: true,
   email: true,
@@ -162,28 +165,65 @@ adminRouter.post(
   }),
 );
 
+interface UpdateUserBody {
+  email?: string;
+  name?: string;
+  role?: Role;
+  active?: boolean;
+  password?: string;
+  mustChangePassword?: boolean;
+}
+
+// Validation des champs modifiables par l'admin. Renvoie un message d'erreur
+// destiné au client, ou null si la requête est acceptable.
+function validateUserUpdate(body: UpdateUserBody, isSelf: boolean): string | null {
+  if (body.email !== undefined && !EMAIL_RE.test(body.email.trim())) return 'Adresse email invalide';
+  if (body.name !== undefined && body.name.trim().length === 0) return 'Le nom ne peut pas être vide';
+  if (body.role !== undefined && body.role !== 'ADMIN' && body.role !== 'USER') return 'Rôle invalide';
+  // Un admin qui se désactive ou se rétrograde perdrait l'accès à cette page.
+  if (isSelf && (body.active === false || body.role === 'USER')) {
+    return 'Vous ne pouvez pas désactiver ni rétrograder votre propre compte';
+  }
+  if (body.password) {
+    try {
+      validatePasswordStrength(body.password);
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Mot de passe invalide';
+    }
+  }
+  return null;
+}
+
 adminRouter.patch(
   '/users/:id',
   asyncHandler(async (req, res) => {
-    const { name, role, active, password, mustChangePassword } = req.body as {
-      name?: string;
-      role?: Role;
-      active?: boolean;
-      password?: string;
-      mustChangePassword?: boolean;
-    };
+    const body = req.body as UpdateUserBody;
+    const { name, role, active, password, mustChangePassword } = body;
 
-    if (password) {
-      try {
-        validatePasswordStrength(password);
-      } catch (err) {
-        res.status(400).json({ error: err instanceof Error ? err.message : 'Mot de passe invalide' });
+    const validationError = validateUserUpdate(body, req.params.id === req.user!.sub);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!existing) {
+      res.status(404).json({ error: 'Compte introuvable' });
+      return;
+    }
+
+    const email = body.email?.trim();
+    if (email !== undefined) {
+      const owner = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (owner && owner.id !== existing.id) {
+        res.status(409).json({ error: 'Cette adresse email est déjà utilisée par un autre compte' });
         return;
       }
     }
 
     const data: Prisma.UserUpdateInput = {};
-    if (name !== undefined) data.name = name;
+    if (email !== undefined) data.email = email;
+    if (name !== undefined) data.name = name.trim();
     if (role !== undefined) data.role = role;
     if (active !== undefined) data.active = active;
     if (password) {
@@ -202,7 +242,8 @@ adminRouter.patch(
       select: USER_SELECT,
     });
 
-    const action = active === false ? 'DEACTIVATE_USER' : 'UPDATE_USER';
+    // Seule la liste des champs modifiés est consignée, jamais le mot de passe.
+    const action = active === false ? 'DEACTIVATE_USER' : password ? 'RESET_PASSWORD' : 'UPDATE_USER';
     await logAction({
       userId: req.user!.sub,
       action,

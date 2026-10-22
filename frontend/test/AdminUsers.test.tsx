@@ -87,3 +87,78 @@ describe('AdminUsers — forced password change', () => {
     expect(JSON.parse(call[1]!.body as string)).toEqual({ mustChangePassword: true });
   });
 });
+
+describe('AdminUsers — edit panel', () => {
+  async function openEditPanel() {
+    renderWithProviders(<AdminUsers />);
+    await screen.findByText('jane@example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Modifier jane@example.com' }));
+    return screen.getByRole('dialog', { name: /Modifier le compte/ });
+  }
+
+  function patchBodies(): unknown[] {
+    return vi
+      .mocked(apiFetch)
+      .mock.calls.filter((c) => c[1]?.method === 'PATCH')
+      .map((c) => JSON.parse(c[1]!.body as string));
+  }
+
+  it('pre-fills the profile form and sends the edited name, email and role', async () => {
+    await openEditPanel();
+
+    expect(screen.getByLabelText('Nom du compte')).toHaveValue('Jane');
+    expect(screen.getByLabelText('Email du compte')).toHaveValue('jane@example.com');
+
+    fireEvent.change(screen.getByLabelText('Nom du compte'), { target: { value: 'Jane Doe' } });
+    fireEvent.change(screen.getByLabelText('Email du compte'), { target: { value: 'jane.doe@example.com' } });
+    fireEvent.change(screen.getByLabelText('Rôle du compte'), { target: { value: 'ADMIN' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies()[0]).toEqual({ name: 'Jane Doe', email: 'jane.doe@example.com', role: 'ADMIN' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('shows the server error when the email is already used', async () => {
+    const { ApiError } = await import('../src/lib/apiClient');
+    vi.mocked(apiFetch).mockImplementation((path: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') return Promise.reject(new ApiError('Cette adresse email est déjà utilisée'));
+      return Promise.resolve({ users: [USER] });
+    });
+    await openEditPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cette adresse email est déjà utilisée');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('resets the password with a temporary password', async () => {
+    await openEditPanel();
+
+    fireEvent.change(screen.getByLabelText('Nouveau mot de passe temporaire'), { target: { value: 'T3mp!Passw0rd' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Réinitialiser le mot de passe' }));
+
+    await waitFor(() => expect(patchBodies()).toEqual([{ password: 'T3mp!Passw0rd' }]));
+    expect(await screen.findByText(/Mot de passe réinitialisé/)).toBeInTheDocument();
+  });
+
+  it('blocks a weak temporary password before calling the API', async () => {
+    await openEditPanel();
+
+    fireEvent.change(screen.getByLabelText('Nouveau mot de passe temporaire'), { target: { value: 'weak' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Réinitialiser le mot de passe' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Le mot de passe doit contenir/);
+    expect(patchBodies()).toHaveLength(0);
+  });
+
+  it('closes the panel without saving on Escape', async () => {
+    await openEditPanel();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(patchBodies()).toHaveLength(0);
+  });
+});

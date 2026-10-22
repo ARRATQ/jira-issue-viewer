@@ -72,6 +72,7 @@ export function useCreateUser() {
 
 export interface UpdateUserInput {
   id: string;
+  email?: string;
   name?: string;
   role?: 'ADMIN' | 'USER';
   active?: boolean;

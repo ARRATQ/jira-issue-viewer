@@ -12,6 +12,7 @@ export type AuditAction =
   | 'CREATE_USER'
   | 'UPDATE_USER'
   | 'DEACTIVATE_USER'
+  | 'RESET_PASSWORD'
   | 'CHANGE_PASSWORD'
   | 'SAVE_QUERY'
   | 'DELETE_QUERY';

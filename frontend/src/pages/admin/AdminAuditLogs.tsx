@@ -14,6 +14,7 @@ const ACTIONS = [
   'CREATE_USER',
   'UPDATE_USER',
   'DEACTIVATE_USER',
+  'RESET_PASSWORD',
 ];
 
 export function AdminAuditLogs(): ReactElement {
