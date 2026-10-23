@@ -105,6 +105,25 @@ function assertValidQueryInput(input: { name?: string }): void {
   }
 }
 
+// Champs que l'utilisateur peut afficher en colonne dans la liste : les
+// colonnes par défaut de l'admin, puis les champs des onglets de détail qu'il
+// a le droit de voir (tous pour ADMIN, ceux marqués visibleToUser sinon), par
+// position d'onglet. Dédoublonné par nom normalisé, la 1re occurrence gagne.
+export function availableColumnsFor(query: SavedQueryRecord, role: 'ADMIN' | 'USER'): FieldRef[] {
+  const visibleTabs = query.tabs
+    .filter((tab) => role === 'ADMIN' || tab.visibleToUser)
+    .sort((a, b) => a.position - b.position);
+  const seen = new Set<string>();
+  const columns: FieldRef[] = [];
+  for (const field of [...query.listColumns, ...visibleTabs.flatMap((tab) => tab.fields)]) {
+    const normalized = field.fieldName.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    columns.push(field);
+  }
+  return columns;
+}
+
 export async function listQueriesSummary(): Promise<SavedQuerySummary[]> {
   return prisma.savedQuery.findMany({
     orderBy: { position: 'asc' },

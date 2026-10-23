@@ -32,11 +32,15 @@ beforeAll(() => {
 beforeEach(() => {
   fakePrisma.reset();
   vi.clearAllMocks();
+  // Le cache des recherches est un état de module : un résultat mis en cache
+  // par un test fausserait le suivant.
+  clearIssueSearchCache();
 });
 
 const { createApp } = await import('../src/app');
 const { signAccessToken } = await import('../src/lib/tokens');
 const { createQuery } = await import('../src/services/savedQueries');
+const { clearIssueSearchCache } = await import('../src/services/issueSearch');
 
 function tokenFor(role: 'ADMIN' | 'USER', sub = 'user-1') {
   return signAccessToken({ sub, email: `${sub}@example.com`, role });
@@ -85,15 +89,18 @@ describe('GET /api/queries/:queryId/issues', () => {
       tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] }],
       autresVisibleToUser: false,
     });
-    fakeJiraClient.searchIssues.mockResolvedValue([
-      {
-        key: 'PROJ-1',
-        summary: 'Ticket un',
-        status: 'Open',
-        issueType: 'Task',
-        extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
-      },
-    ]);
+    fakeJiraClient.searchIssues.mockResolvedValue({
+      issues: [
+        {
+          key: 'PROJ-1',
+          summary: 'Ticket un',
+          status: 'Open',
+          issueType: 'Task',
+          extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
+        },
+      ],
+      total: 1,
+    });
 
     const res = await request(createApp())
       .get(`/api/queries/${query.id}/issues`)
@@ -103,6 +110,8 @@ describe('GET /api/queries/:queryId/issues', () => {
     expect(res.body.queryId).toBe(query.id);
     expect(res.body.jql).toBe('project = PROJ');
     expect(res.body.autresVisibleToUser).toBe(false);
+    expect(res.body.total).toBe(1);
+    expect(res.body.truncated).toBe(false);
     expect(res.body.tabs).toEqual([
       { id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] },
     ]);
@@ -115,7 +124,19 @@ describe('GET /api/queries/:queryId/issues', () => {
         extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
       },
     ]);
-    expect(fakeJiraClient.searchIssues).toHaveBeenCalledWith('project = PROJ', ['Profil Export', 'Offre Export']);
+    // Les champs des onglets visibles sont récupérés aussi, pour que
+    // l'utilisateur puisse les ajouter comme colonnes sans nouvel appel.
+    expect(fakeJiraClient.searchIssues).toHaveBeenCalledWith('project = PROJ', [
+      'Profil Export',
+      'Offre Export',
+      'Raison Sociale',
+    ]);
+    expect(res.body.listColumns).toEqual([{ fieldName: 'Profil Export' }, { fieldName: 'Offre Export' }]);
+    expect(res.body.availableColumns).toEqual([
+      { fieldName: 'Profil Export' },
+      { fieldName: 'Offre Export' },
+      { fieldName: 'Raison Sociale' },
+    ]);
 
     const logs = fakePrisma.__state.auditLogs;
     expect(logs).toHaveLength(1);
@@ -125,6 +146,102 @@ describe('GET /api/queries/:queryId/issues', () => {
       entityType: 'saved_query',
       entityKey: query.id,
     });
+  });
+});
+
+describe('GET /api/queries/:queryId/issues — truncation and cache', () => {
+  const ONE_ISSUE = { key: 'PROJ-1', summary: 'Un', status: null, issueType: null, extraFields: {} };
+
+  it('flags the list as truncated when Jira reports more issues than were fetched', async () => {
+    const query = await createQuery({ name: 'Gros volume', jql: 'project = BIG' });
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [ONE_ISSUE], total: 4200 });
+
+    const res = await request(createApp())
+      .get(`/api/queries/${query.id}/issues`)
+      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+
+    expect(res.body.total).toBe(4200);
+    expect(res.body.truncated).toBe(true);
+  });
+
+  it('serves a repeated identical search from the cache, but still logs each view', async () => {
+    const query = await createQuery({ name: 'Cache', jql: 'project = CACHE' });
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [ONE_ISSUE], total: 1 });
+
+    for (const sub of ['user-1', 'user-2']) {
+      const res = await request(createApp())
+        .get(`/api/queries/${query.id}/issues`)
+        .set('Authorization', `Bearer ${tokenFor('USER', sub)}`);
+      expect(res.body.issues).toHaveLength(1);
+    }
+
+    expect(fakeJiraClient.searchIssues).toHaveBeenCalledTimes(1);
+    expect(fakePrisma.__state.auditLogs).toHaveLength(2);
+  });
+
+  it('does not cache a failed search', async () => {
+    const query = await createQuery({ name: 'Erreur', jql: 'project = ERR' });
+    fakeJiraClient.searchIssues.mockRejectedValueOnce(new Error('Jira down'));
+    fakeJiraClient.searchIssues.mockResolvedValueOnce({ issues: [ONE_ISSUE], total: 1 });
+
+    const first = await request(createApp())
+      .get(`/api/queries/${query.id}/issues`)
+      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+    const second = await request(createApp())
+      .get(`/api/queries/${query.id}/issues`)
+      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+
+    expect(first.status).toBeGreaterThanOrEqual(500);
+    expect(second.status).toBe(200);
+    expect(fakeJiraClient.searchIssues).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('GET /api/queries/:queryId/issues — available columns by role', () => {
+  async function createQueryWithHiddenTab() {
+    return createQuery({
+      name: 'Export',
+      jql: 'project = PROJ',
+      listColumns: [{ fieldName: 'Profil Export' }],
+      tabs: [
+        { id: 'interne', label: 'Interne', position: 1, visibleToUser: false, fields: [{ fieldName: 'Marge' }] },
+        {
+          id: 'infos',
+          label: 'Infos',
+          position: 0,
+          visibleToUser: true,
+          fields: [{ fieldName: 'Raison Sociale' }, { fieldName: 'profil export ' }],
+        },
+      ],
+    });
+  }
+
+  it('excludes fields of tabs hidden from USER and dedupes by normalized name', async () => {
+    const query = await createQueryWithHiddenTab();
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [], total: 0 });
+
+    const res = await request(createApp())
+      .get(`/api/queries/${query.id}/issues`)
+      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.availableColumns).toEqual([{ fieldName: 'Profil Export' }, { fieldName: 'Raison Sociale' }]);
+    expect(fakeJiraClient.searchIssues).toHaveBeenCalledWith('project = PROJ', ['Profil Export', 'Raison Sociale']);
+  });
+
+  it('includes fields of every tab for ADMIN, ordered by tab position', async () => {
+    const query = await createQueryWithHiddenTab();
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [], total: 0 });
+
+    const res = await request(createApp())
+      .get(`/api/queries/${query.id}/issues`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.body.availableColumns).toEqual([
+      { fieldName: 'Profil Export' },
+      { fieldName: 'Raison Sociale' },
+      { fieldName: 'Marge' },
+    ]);
   });
 });
 

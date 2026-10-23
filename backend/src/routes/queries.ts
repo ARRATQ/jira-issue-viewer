@@ -4,7 +4,8 @@ import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../lib/asyncHandler';
 import { JiraClient } from '../lib/jira';
 import { getJiraClientConfig } from '../services/config';
-import { getQueryById, listQueriesSummary } from '../services/savedQueries';
+import { availableColumnsFor, getQueryById, listQueriesSummary } from '../services/savedQueries';
+import { searchIssuesCached } from '../services/issueSearch';
 import { logAction } from '../services/audit';
 
 export const queriesRouter = Router();
@@ -33,9 +34,13 @@ queriesRouter.get(
       return;
     }
 
-    const client = new JiraClient(await getJiraClientConfig());
-    const extraFieldNames = savedQuery.listColumns.map((c) => c.fieldName);
-    const issues = await client.searchIssues(savedQuery.jql, extraFieldNames);
+    const availableColumns = availableColumnsFor(savedQuery, req.user!.role);
+    const extraFieldNames = availableColumns.map((c) => c.fieldName);
+    const { issues, total } = await searchIssuesCached(
+      await getJiraClientConfig(),
+      savedQuery.jql,
+      extraFieldNames,
+    );
 
     await logAction({
       userId: req.user!.sub,
@@ -51,12 +56,19 @@ queriesRouter.get(
       queryName: savedQuery.name,
       jql: savedQuery.jql,
       listColumns: savedQuery.listColumns,
+      // Colonnes que l'utilisateur peut ajouter/retirer du tableau ; leurs
+      // valeurs sont déjà présentes dans `issues[].extraFields`.
+      availableColumns,
       // Onglets + visibilité "Autres" livrés avec la liste pour que le drawer
       // de détail soit pilotable par les données sans requête supplémentaire
       // (le résumé GET /api/queries ne porte que id/nom/position).
       tabs: savedQuery.tabs,
       autresVisibleToUser: savedQuery.autresVisibleToUser,
       issues,
+      // total > issues.length quand Jira renvoie plus d'issues que le plafond
+      // (voir SEARCH_MAX_ISSUES) : le frontend le signale à l'utilisateur.
+      total,
+      truncated: issues.length < total,
     });
   }),
 );

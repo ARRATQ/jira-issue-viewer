@@ -47,7 +47,14 @@ export interface QueryIssuesResponse {
   queryName: string;
   jql: string;
   listColumns: FieldRef[];
+  // Colonnes que l'utilisateur peut ajouter/retirer : listColumns + champs des
+  // onglets qu'il a le droit de voir. Leurs valeurs sont dans extraFields.
+  availableColumns: FieldRef[];
   tabs: QueryTab[];
   autresVisibleToUser: boolean;
   issues: IssueSummary[];
+  // Nombre d'issues correspondant au JQL côté Jira ; truncated = true quand
+  // la liste chargée est plafonnée (total > issues.length).
+  total: number;
+  truncated: boolean;
 }

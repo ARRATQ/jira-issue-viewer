@@ -53,6 +53,13 @@ export interface JiraIssueSummary extends JiraIssueBase {
   extraFields: Record<string, string | null>;
 }
 
+// `total` est le nombre d'issues correspondant au JQL côté Jira ; il peut
+// dépasser `issues.length` quand la recherche est plafonnée (SEARCH_MAX_ISSUES).
+export interface JiraSearchResult {
+  issues: JiraIssueSummary[];
+  total: number;
+}
+
 // Vue détail : tous les champs renseignés (dont Profil/Offre Export s'ils
 // existent) sont déjà dans `fields`, pas besoin de les dupliquer à part.
 // reporterId/reporterName permettent au frontend de filtrer les pièces
@@ -151,9 +158,13 @@ function extractUserIdentity(raw: unknown): { id: string | null; displayName: st
 }
 
 const SEARCH_PAGE_SIZE = 100;
-// Garde-fou : évite de boucler indéfiniment sur un JQL retournant un très
-// grand nombre de résultats.
-const SEARCH_MAX_ISSUES = 500;
+// Garde-fou : borne la taille de la liste renvoyée au navigateur (filtres,
+// pagination et export y sont faits côté client). Au-delà, la réponse
+// signale la troncature via `total`.
+const SEARCH_MAX_ISSUES = 3000;
+// Pages demandées simultanément à Jira une fois le total connu : assez pour
+// charger 3000 issues en ~6 allers-retours, sans surcharger l'instance.
+const SEARCH_CONCURRENCY = 5;
 
 function mapAttachments(raw: unknown): JiraAttachmentMeta[] {
   if (!Array.isArray(raw)) return [];
@@ -230,7 +241,7 @@ export class JiraClient {
   // au-delà de la limite par page de l'API Jira, jusqu'à SEARCH_MAX_ISSUES),
   // avec les champs standard plus les champs métier de `extraFieldNames`
   // (colonnes de liste configurées pour la requête sauvegardée courante).
-  async searchIssues(jql: string, extraFieldNames: string[] = []): Promise<JiraIssueSummary[]> {
+  async searchIssues(jql: string, extraFieldNames: string[] = []): Promise<JiraSearchResult> {
     const fieldsMeta = extraFieldNames.length > 0 ? await this.getFieldsMeta() : new Map<string, string>();
     const resolvedExtraFields = extraFieldNames.map((name) => ({
       name,
@@ -239,10 +250,9 @@ export class JiraClient {
     const extraIds = resolvedExtraFields.filter((f): f is { name: string; id: string } => f.id !== null).map((f) => f.id);
     const fields = ['summary', 'status', 'issuetype', ...extraIds].join(',');
 
-    const issues: JiraIssueSummary[] = [];
-    let startAt = 0;
-
-    for (;;) {
+    const fetchPage = async (
+      startAt: number,
+    ): Promise<{ issues: JiraIssueSummary[]; total: number; maxResults: number | undefined }> => {
       const query = new URLSearchParams({
         jql,
         startAt: String(startAt),
@@ -252,27 +262,43 @@ export class JiraClient {
       const data = (await this.request(`/rest/api/2/search?${query.toString()}`)) as {
         issues: Array<{ key: string; fields: Record<string, unknown> }>;
         total: number;
+        maxResults?: number;
       };
-
-      for (const issue of data.issues) {
+      const issues = data.issues.map((issue) => {
         const extraFields: Record<string, string | null> = {};
         for (const f of resolvedExtraFields) {
           extraFields[f.name] = f.id ? extractScalarFieldValue(issue.fields[f.id]) : null;
         }
-        issues.push({
+        return {
           key: issue.key,
           summary: String(issue.fields.summary ?? ''),
           status: extractScalarFieldValue(issue.fields.status),
           issueType: extractScalarFieldValue(issue.fields.issuetype),
           extraFields,
-        });
-      }
+        };
+      });
+      return { issues, total: data.total, maxResults: data.maxResults };
+    };
 
-      startAt += SEARCH_PAGE_SIZE;
-      if (data.issues.length === 0 || issues.length >= data.total || issues.length >= SEARCH_MAX_ISSUES) break;
+    // La 1re page donne le total et la taille de page réellement appliquée
+    // (Jira peut plafonner maxResults en dessous de la valeur demandée) : les
+    // pages suivantes sont ensuite demandées par lots parallèles, puis
+    // concaténées dans l'ordre des startAt.
+    const first = await fetchPage(0);
+    const pageSize = Math.max(1, Math.min(first.maxResults ?? SEARCH_PAGE_SIZE, SEARCH_PAGE_SIZE));
+    const limit = Math.min(first.total, SEARCH_MAX_ISSUES);
+    const remainingStarts: number[] = [];
+    for (let startAt = pageSize; startAt < limit; startAt += pageSize) {
+      remainingStarts.push(startAt);
     }
 
-    return issues;
+    const pages = [first.issues];
+    for (let i = 0; i < remainingStarts.length; i += SEARCH_CONCURRENCY) {
+      const batch = await Promise.all(remainingStarts.slice(i, i + SEARCH_CONCURRENCY).map(fetchPage));
+      pages.push(...batch.map((page) => page.issues));
+    }
+
+    return { issues: pages.flat().slice(0, SEARCH_MAX_ISSUES), total: first.total };
   }
 
   async getIssue(key: string, fieldsMeta: Map<string, string>): Promise<JiraIssueDetail> {
