@@ -125,6 +125,49 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
 
   // Jira peut plafonner la taille de page sous la valeur demandée (ici 1) :
   // on avance alors du maxResults annoncé pour ne sauter aucune issue.
+  // Jira Data Center contient souvent plusieurs champs personnalisés de même
+  // nom (ex. un « Raison Sociale » par projet). La fiche affiche celui qui est
+  // renseigné ; la liste doit faire de même au lieu de prendre le 1er id trouvé.
+  it('reads every field sharing the requested name and keeps the populated one', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    pool.intercept({ path: '/jira/rest/api/2/field', method: 'GET' }).reply(200, [
+      { id: 'customfield_20001', name: 'Raison Sociale' },
+      { id: 'customfield_20002', name: 'Raison sociale ' },
+      { id: 'customfield_20003', name: 'ICE' },
+      { id: 'customfield_20004', name: 'ICE' },
+    ]);
+    pool
+      .intercept({
+        path: (path) =>
+          path.startsWith('/jira/rest/api/2/search?') &&
+          ['customfield_20001', 'customfield_20002', 'customfield_20003', 'customfield_20004'].every((id) =>
+            decodeURIComponent(path).includes(id),
+          ),
+        method: 'GET',
+      })
+      .reply(200, {
+        total: 1,
+        issues: [
+          {
+            key: 'PROJ-1',
+            fields: {
+              summary: 'Dossier',
+              status: null,
+              issuetype: null,
+              customfield_20001: '',
+              customfield_20002: 'Acme SARL',
+              customfield_20003: '001234567000089',
+              customfield_20004: null,
+            },
+          },
+        ],
+      });
+
+    const { issues } = await client().searchIssues('project = PROJ', ['Raison Sociale', 'ICE']);
+
+    expect(issues[0]?.extraFields).toEqual({ 'Raison Sociale': 'Acme SARL', ICE: '001234567000089' });
+  });
+
   it('paginates until every issue is fetched, using the page size Jira actually applied', async () => {
     const pool = mockAgent.get(ORIGIN);
     pool
