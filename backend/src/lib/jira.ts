@@ -122,15 +122,17 @@ function normalizeFieldName(name: string): string {
     .toLowerCase();
 }
 
-// Résout l'id d'un champ (customfield_xxxxx ou champ standard) à partir de
-// son nom lisible, tel que renvoyé par /rest/api/2/field — nécessaire pour
-// demander des customfields à la recherche JQL, qui ne les accepte que par id.
-function findFieldIdByName(fieldsMeta: Map<string, string>, wantedName: string): string | null {
+// Résout les ids des champs (customfield_xxxxx ou champs standard) portant
+// un nom lisible donné, tel que renvoyé par /rest/api/2/field — nécessaire
+// pour demander des customfields à la recherche JQL, qui ne les accepte que
+// par id. Plusieurs champs peuvent porter le même nom (fréquent sur Jira Data
+// Center : un même libellé créé pour plusieurs projets) : on les renvoie tous,
+// comme la fiche détail qui affiche celui qui est renseigné.
+function findFieldIdsByName(fieldsMeta: Map<string, string>, wantedName: string): string[] {
   const normalizedWanted = normalizeFieldName(wantedName);
-  for (const [id, name] of fieldsMeta) {
-    if (normalizeFieldName(name) === normalizedWanted) return id;
-  }
-  return null;
+  return [...fieldsMeta]
+    .filter(([, name]) => normalizeFieldName(name) === normalizedWanted)
+    .map(([id]) => id);
 }
 
 // Ramène toujours une chaîne simple (ou null) : un champ Jira peut être
@@ -245,9 +247,9 @@ export class JiraClient {
     const fieldsMeta = extraFieldNames.length > 0 ? await this.getFieldsMeta() : new Map<string, string>();
     const resolvedExtraFields = extraFieldNames.map((name) => ({
       name,
-      id: findFieldIdByName(fieldsMeta, name),
+      ids: findFieldIdsByName(fieldsMeta, name),
     }));
-    const extraIds = resolvedExtraFields.filter((f): f is { name: string; id: string } => f.id !== null).map((f) => f.id);
+    const extraIds = [...new Set(resolvedExtraFields.flatMap((f) => f.ids))];
     const fields = ['summary', 'status', 'issuetype', ...extraIds].join(',');
 
     const fetchPage = async (
@@ -267,7 +269,10 @@ export class JiraClient {
       const issues = data.issues.map((issue) => {
         const extraFields: Record<string, string | null> = {};
         for (const f of resolvedExtraFields) {
-          extraFields[f.name] = f.id ? extractScalarFieldValue(issue.fields[f.id]) : null;
+          // 1re valeur renseignée parmi les champs homonymes (null si aucune).
+          extraFields[f.name] =
+            f.ids.map((id) => extractScalarFieldValue(issue.fields[id])).find((value) => value !== null && value !== '') ??
+            null;
         }
         return {
           key: issue.key,
