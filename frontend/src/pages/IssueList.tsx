@@ -2,9 +2,16 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQueryIssues } from '../hooks/useQueries';
+import { useAuth } from '../hooks/useAuth';
+import { useColumnPreferences } from '../hooks/useColumnPreferences';
 import { ApiError } from '../lib/apiClient';
+import { buildIssuesCsv, csvFileName, downloadCsv } from '../lib/csvExport';
+import { paginate } from '../lib/pagination';
 import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
+import { ColumnPicker } from '../components/ColumnPicker';
+import { PAGE_SIZE_OPTIONS, Pagination } from '../components/Pagination';
 import type { IssueSummary } from '../types/issue';
+import type { FieldRef } from '../types/query';
 import './IssueList.css';
 
 // Valeurs distinctes d'une colonne dynamique (indexée par nom de champ dans
@@ -26,35 +33,81 @@ function distinctStatuses(issues: IssueSummary[]): string[] {
   return [...values].sort((a, b) => a.localeCompare(b));
 }
 
+const NO_COLUMNS: FieldRef[] = [];
+
 export function IssueList(): ReactElement {
   const { queryId = '' } = useParams();
   const { data, isLoading, isError, error } = useQueryIssues(queryId);
+  const { user } = useAuth();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   // Filtres des colonnes dynamiques, indexés par nom de champ.
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
   const issues = data?.issues ?? [];
-  const listColumns = data?.listColumns ?? [];
+  const listColumns = data?.listColumns ?? NO_COLUMNS;
+  const availableColumns = data?.availableColumns ?? listColumns;
+  const { visibleColumns, isCustomized, toggleColumn, resetColumns } = useColumnPreferences(
+    user?.id ?? 'anonymous',
+    queryId,
+    listColumns,
+    availableColumns,
+  );
 
   const statusOptions = useMemo(() => distinctStatuses(issues), [issues]);
   const columnOptions = useMemo(
-    () => listColumns.map((col) => ({ fieldName: col.fieldName, options: distinctColumnValues(issues, col.fieldName) })),
-    [issues, listColumns],
+    () =>
+      visibleColumns.map((col) => ({
+        fieldName: col.fieldName,
+        options: distinctColumnValues(issues, col.fieldName),
+      })),
+    [issues, visibleColumns],
   );
 
+  // Seuls les filtres des colonnes affichées s'appliquent : masquer une
+  // colonne retire aussi son filtre, sinon il agirait sans être visible.
   const filteredIssues = useMemo(
     () =>
       issues.filter((issue) => {
         if (statusFilter && issue.status !== statusFilter) return false;
-        for (const [fieldName, value] of Object.entries(columnFilters)) {
-          if (value && issue.extraFields[fieldName] !== value) return false;
+        for (const col of visibleColumns) {
+          const value = columnFilters[col.fieldName];
+          if (value && issue.extraFields[col.fieldName] !== value) return false;
         }
         return true;
       }),
-    [issues, statusFilter, columnFilters],
+    [issues, statusFilter, columnFilters, visibleColumns],
   );
+
+  // Pagination purement côté client : le backend renvoie déjà toutes les
+  // issues de la requête. L'export CSV, lui, porte sur toutes les issues
+  // filtrées, pas seulement sur la page affichée.
+  const currentPage = paginate(filteredIssues, page, pageSize);
+
+  // Tout changement de filtre ramène en page 1 : la page courante n'a plus de
+  // sens une fois la liste recomposée.
+  function changeStatusFilter(value: string): void {
+    setStatusFilter(value);
+    setPage(1);
+  }
+
+  function changeColumnFilter(fieldName: string, value: string): void {
+    setColumnFilters((prev) => ({ ...prev, [fieldName]: value }));
+    setPage(1);
+  }
+
+  function changePageSize(size: number): void {
+    setPageSize(size);
+    setPage(1);
+  }
+
+  function exportCsv(): void {
+    if (!data) return;
+    downloadCsv(csvFileName(data.queryName), buildIssuesCsv(filteredIssues, visibleColumns));
+  }
 
   function closeDrawer(): void {
     setSelectedKey(null);
@@ -81,10 +134,34 @@ export function IssueList(): ReactElement {
         <code>{data.jql}</code>
       </p>
 
+      {data.truncated && (
+        <p role="status" className="issue-list__truncated">
+          Affichage des {data.issues.length} premières issues sur {data.total} : filtres, pagination et export ne
+          portent que sur celles-ci. Pour tout voir, affinez le JQL de la requête.
+        </p>
+      )}
+
+      <div className="issue-list__toolbar">
+        <ColumnPicker
+          availableColumns={availableColumns}
+          visibleColumns={visibleColumns}
+          isCustomized={isCustomized}
+          onToggle={toggleColumn}
+          onReset={resetColumns}
+        />
+        <span className="issue-list__count">
+          {filteredIssues.length} / {issues.length} issue
+          {issues.length > 1 ? 's' : ''}
+        </span>
+        <button type="button" className="issue-list__export" onClick={exportCsv} disabled={filteredIssues.length === 0}>
+          Exporter CSV
+        </button>
+      </div>
+
       <div className="issue-list__filters">
         <label>
           Statut
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select value={statusFilter} onChange={(e) => changeStatusFilter(e.target.value)}>
             <option value="">Tous</option>
             {statusOptions.map((value) => (
               <option key={value} value={value}>
@@ -98,9 +175,7 @@ export function IssueList(): ReactElement {
             {col.fieldName}
             <select
               value={columnFilters[col.fieldName] ?? ''}
-              onChange={(e) =>
-                setColumnFilters((prev) => ({ ...prev, [col.fieldName]: e.target.value }))
-              }
+              onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
             >
               <option value="">Tous</option>
               {col.options.map((value) => (
@@ -116,38 +191,50 @@ export function IssueList(): ReactElement {
       {filteredIssues.length === 0 ? (
         <p>Aucune issue ne correspond à ces filtres.</p>
       ) : (
-        <div className="table-scroll">
-          <table className="issue-list__table">
-            <thead>
-              <tr>
-                <th>Clé</th>
-                <th>Résumé</th>
-                <th>Statut</th>
-                <th>Type</th>
-                {listColumns.map((col) => (
-                  <th key={col.fieldName}>{col.fieldName}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredIssues.map((issue) => (
-                <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
-                  <td>
-                    <button type="button" className="issue-list__key-button">
-                      {issue.key}
-                    </button>
-                  </td>
-                  <td>{issue.summary}</td>
-                  <td>{issue.status ?? '—'}</td>
-                  <td>{issue.issueType ?? '—'}</td>
-                  {listColumns.map((col) => (
-                    <td key={col.fieldName}>{issue.extraFields[col.fieldName] ?? '—'}</td>
+        <>
+          <div className="table-scroll">
+            <table className="issue-list__table">
+              <thead>
+                <tr>
+                  <th>Clé</th>
+                  <th>Résumé</th>
+                  <th>Statut</th>
+                  <th>Type</th>
+                  {visibleColumns.map((col) => (
+                    <th key={col.fieldName}>{col.fieldName}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {currentPage.pageItems.map((issue) => (
+                  <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
+                    <td>
+                      <button type="button" className="issue-list__key-button">
+                        {issue.key}
+                      </button>
+                    </td>
+                    <td>{issue.summary}</td>
+                    <td>{issue.status ?? '—'}</td>
+                    <td>{issue.issueType ?? '—'}</td>
+                    {visibleColumns.map((col) => (
+                      <td key={col.fieldName}>{issue.extraFields[col.fieldName] ?? '—'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={currentPage.page}
+            pageCount={currentPage.pageCount}
+            pageSize={pageSize}
+            rangeStart={currentPage.rangeStart}
+            rangeEnd={currentPage.rangeEnd}
+            total={filteredIssues.length}
+            onPageChange={setPage}
+            onPageSizeChange={changePageSize}
+          />
+        </>
       )}
 
       <IssueDetailDrawer

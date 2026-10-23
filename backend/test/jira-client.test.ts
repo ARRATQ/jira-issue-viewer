@@ -38,7 +38,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         ],
       });
 
-    const issues = await client().searchIssues('project = PROJ');
+    const { issues } = await client().searchIssues('project = PROJ');
 
     expect(issues).toEqual([
       { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', extraFields: {} },
@@ -67,7 +67,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         ],
       });
 
-    const issues = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
+    const { issues } = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
 
     expect(issues).toEqual([
       {
@@ -90,7 +90,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         issues: [{ key: 'PROJ-1', fields: { summary: 'Ticket un', status: null, issuetype: null } }],
       });
 
-    const issues = await client().searchIssues('project = PROJ', ['Champ Inexistant']);
+    const { issues } = await client().searchIssues('project = PROJ', ['Champ Inexistant']);
 
     expect(issues[0]?.extraFields).toEqual({ 'Champ Inexistant': null });
   });
@@ -117,30 +117,64 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         ],
       });
 
-    const issues = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
+    const { issues } = await client().searchIssues('project = PROJ', ['Profil Export', 'Offre Export']);
 
     expect(issues[0]?.extraFields['Profil Export']).toBe('Débutant, Confirmé');
     expect(issues[0]?.extraFields['Offre Export']).toBeNull();
   });
 
-  it('paginates until every issue is fetched', async () => {
+  // Jira peut plafonner la taille de page sous la valeur demandée (ici 1) :
+  // on avance alors du maxResults annoncé pour ne sauter aucune issue.
+  it('paginates until every issue is fetched, using the page size Jira actually applied', async () => {
     const pool = mockAgent.get(ORIGIN);
     pool
-      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=0.*/, method: 'GET' })
+      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=0$/, method: 'GET' })
       .reply(200, {
         total: 2,
+        maxResults: 1,
         issues: [{ key: 'PROJ-1', fields: { summary: 'Un', status: null, issuetype: null } }],
       });
     pool
-      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=100.*/, method: 'GET' })
+      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*startAt=1$/, method: 'GET' })
       .reply(200, {
         total: 2,
         issues: [{ key: 'PROJ-2', fields: { summary: 'Deux', status: null, issuetype: null } }],
       });
 
-    const issues = await client().searchIssues('project = PROJ');
+    const { issues } = await client().searchIssues('project = PROJ');
 
     expect(issues.map((i) => i.key)).toEqual(['PROJ-1', 'PROJ-2']);
+  });
+
+  // Jira renvoie 100 issues par page, numérotées d'après startAt, pour un
+  // total supérieur au plafond : on doit s'arrêter à 3000, dans l'ordre.
+  it('fetches remaining pages in parallel, keeps their order and stops at the 3000 cap', async () => {
+    const requestedStarts: number[] = [];
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: /\/jira\/rest\/api\/2\/search\?.*/, method: 'GET' })
+      .reply(200, (opts) => {
+        const startAt = Number(new URL(String(opts.path), ORIGIN).searchParams.get('startAt'));
+        requestedStarts.push(startAt);
+        return {
+          total: 5000,
+          issues: Array.from({ length: 100 }, (_, i) => ({
+            key: `PROJ-${startAt + i + 1}`,
+            fields: { summary: 'x', status: null, issuetype: null },
+          })),
+        };
+      })
+      .persist();
+
+    const { issues, total } = await client().searchIssues('project = PROJ');
+
+    expect(total).toBe(5000);
+    expect(issues).toHaveLength(3000);
+    expect(issues[0]?.key).toBe('PROJ-1');
+    expect(issues[2999]?.key).toBe('PROJ-3000');
+    expect(issues.map((i) => i.key)).toEqual(Array.from({ length: 3000 }, (_, i) => `PROJ-${i + 1}`));
+    expect(Math.max(...requestedStarts)).toBe(2900);
+    expect(requestedStarts).toHaveLength(30);
   });
 
   it('sends the PAT as a Bearer Authorization header', async () => {
@@ -155,7 +189,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
 
     // Si le header Authorization ne correspond pas, undici lève une erreur
     // "no matching interceptor" — c'est l'assertion elle-même.
-    await expect(client().searchIssues('project = PROJ')).resolves.toEqual([]);
+    await expect(client().searchIssues('project = PROJ')).resolves.toEqual({ issues: [], total: 0 });
   });
 
   it('getFieldsMeta builds an id -> name map from the field catalog', async () => {

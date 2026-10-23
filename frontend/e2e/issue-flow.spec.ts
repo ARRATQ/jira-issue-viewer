@@ -43,9 +43,25 @@ test.describe('login → navigation par requête → liste → détail → tél�
           queryName: 'Requête 1',
           jql: 'project = PROJ ORDER BY created DESC',
           listColumns: [],
+          availableColumns: [{ fieldName: 'Raison Sociale' }],
           tabs: [{ id: 'infos', label: 'Infos', position: 0, visibleToUser: true, fields: [{ fieldName: 'Raison Sociale' }] }],
           autresVisibleToUser: false,
-          issues: [{ key: 'PROJ-1', summary: 'Cahier des charges initial', status: 'Open', issueType: 'Task', extraFields: {} }],
+          issues: [
+            {
+              key: 'PROJ-1',
+              summary: 'Cahier des charges initial',
+              status: 'Open',
+              issueType: 'Task',
+              extraFields: { 'Raison Sociale': 'Solution X' },
+            },
+            {
+              key: 'PROJ-2',
+              summary: 'Recette',
+              status: 'Done',
+              issueType: 'Task',
+              extraFields: { 'Raison Sociale': 'Globex' },
+            },
+          ],
         }),
       });
     });
@@ -111,5 +127,39 @@ test.describe('login → navigation par requête → liste → détail → tél�
     // aria-hidden retire le drawer de l'arbre d'accessibilité : on vérifie
     // via un sélecteur CSS plutôt que getByRole, qui ne le trouverait plus.
     await expect(page.locator('.drawer-overlay')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  test('adds a column, filters, and exports the displayed table as CSV', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('user@example.com');
+    await page.getByLabel('Mot de passe').fill('secret');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: 'Se connecter' }).click();
+
+    const table = page.getByRole('table');
+    await expect(table.getByRole('button', { name: 'PROJ-2' })).toBeVisible();
+
+    await page.getByRole('button', { name: /Colonnes/ }).click();
+    await page.getByRole('checkbox', { name: 'Raison Sociale' }).check();
+    await page.keyboard.press('Escape');
+    await expect(table.getByRole('columnheader', { name: 'Raison Sociale' })).toBeVisible();
+
+    await page.getByLabel('Statut').selectOption('Done');
+    await expect(table.getByRole('button', { name: 'PROJ-1' })).not.toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Exporter CSV' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^requete-1-\d{4}-\d{2}-\d{2}\.csv$/);
+
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const lines = Buffer.concat(chunks).toString('utf-8').replace('\uFEFF', '').split('\r\n');
+    expect(lines).toEqual(['Clé;Résumé;Statut;Type;Raison Sociale', 'PROJ-2;Recette;Done;Task;Globex']);
+
+    // Le choix de colonnes survit au rechargement (préférence navigateur).
+    await page.reload();
+    await expect(page.getByRole('columnheader', { name: 'Raison Sociale' })).toBeVisible();
   });
 });
