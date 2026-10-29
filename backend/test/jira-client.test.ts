@@ -33,16 +33,22 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
       .reply(200, {
         total: 2,
         issues: [
-          { key: 'PROJ-1', fields: { summary: 'Ticket un', status: { name: 'Open' }, issuetype: { name: 'Task' } } },
-          { key: 'PROJ-2', fields: { summary: 'Ticket deux', status: { name: 'Done' }, issuetype: { name: 'Bug' } } },
+          {
+            key: 'PROJ-1',
+            fields: { summary: 'Ticket un', status: { name: 'Open', statusCategory: { key: 'new' } }, issuetype: { name: 'Task' } },
+          },
+          {
+            key: 'PROJ-2',
+            fields: { summary: 'Ticket deux', status: { name: 'Done', statusCategory: { key: 'done' } }, issuetype: { name: 'Bug' } },
+          },
         ],
       });
 
     const { issues } = await client().searchIssues('project = PROJ');
 
     expect(issues).toEqual([
-      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', issueType: 'Task', extraFields: {} },
-      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', issueType: 'Bug', extraFields: {} },
+      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', statusCategory: 'new', issueType: 'Task', extraFields: {} },
+      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', statusCategory: 'done', issueType: 'Bug', extraFields: {} },
     ]);
   });
 
@@ -74,6 +80,7 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         key: 'PROJ-1',
         summary: 'Ticket un',
         status: 'Open',
+        statusCategory: null,
         issueType: 'Task',
         extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
       },

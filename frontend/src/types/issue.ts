@@ -10,7 +10,11 @@ export interface IssueBase {
 // Vue liste : les colonnes métier supplémentaires sont désormais dynamiques,
 // pilotées par les `listColumns` de la requête. Chaque valeur est indexée par
 // le nom de champ Jira (clé identique à `listColumns[].fieldName`).
+// Catégorie Jira du statut, qui fixe la couleur de sa pastille.
+export type StatusCategory = 'new' | 'indeterminate' | 'done';
+
 export interface IssueSummary extends IssueBase {
+  statusCategory: StatusCategory | null;
   extraFields: Record<string, string | null>;
 }
 
