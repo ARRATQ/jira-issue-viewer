@@ -1,5 +1,5 @@
 import type { IssueSummary } from '../types/issue';
-import { isoDatePart } from './dateValues';
+import { formatDisplayDate, isoDatePart } from './dateValues';
 
 // Colonnes fixes du tableau ; les autres colonnes sont identifiées par leur
 // nom de champ Jira (clé de `extraFields`).
@@ -28,6 +28,23 @@ export function matchesText(value: string | null | undefined, query: string): bo
   const needle = normalizeText(query.trim());
   if (!needle) return true;
   return value ? normalizeText(value).includes(needle) : false;
+}
+
+// Recherche globale : clé, résumé, statut, type et colonnes affichées. Les
+// dates sont cherchées telles qu'affichées (JJ/MM/AAAA), pas en ISO.
+export function matchesIssueSearch(
+  issue: IssueSummary,
+  query: string,
+  columns: readonly string[],
+  dateColumns: ReadonlySet<string>,
+): boolean {
+  if (!query.trim()) return true;
+  const fixed = [issue.key, issue.summary, issue.status, issue.issueType];
+  if (fixed.some((value) => matchesText(value, query))) return true;
+  return columns.some((column) => {
+    const value = issue.extraFields[column];
+    return matchesText(value && dateColumns.has(column) ? formatDisplayDate(value) : value, query);
+  });
 }
 
 function columnValue(issue: IssueSummary, column: string): string | null | undefined {

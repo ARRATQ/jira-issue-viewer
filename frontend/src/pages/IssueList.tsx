@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react';
-import type { ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQueryIssues } from '../hooks/useQueries';
 import { useAuth } from '../hooks/useAuth';
 import { useColumnPreferences } from '../hooks/useColumnPreferences';
+import { useColumnWidths } from '../hooks/useColumnWidths';
 import { ApiError } from '../lib/apiClient';
 import { buildIssuesCsv, csvFileName, downloadCsv } from '../lib/csvExport';
 import { paginate } from '../lib/pagination';
 import { formatDisplayDate, isDateColumn, isoDatePart } from '../lib/dateValues';
-import { matchesText, nextSort, sortIssues, TEXT_SEARCH_THRESHOLD } from '../lib/issueTable';
+import { matchesIssueSearch, matchesText, nextSort, sortIssues, TEXT_SEARCH_THRESHOLD } from '../lib/issueTable';
 import type { SortState } from '../lib/issueTable';
 import { StatusPill } from '../components/StatusPill';
 import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
@@ -66,6 +67,7 @@ export function IssueList(): ReactElement {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
   // Filtres des colonnes dynamiques, indexés par nom de champ.
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [dateFilters, setDateFilters] = useState<Record<string, DateRange>>({});
@@ -76,12 +78,32 @@ export function IssueList(): ReactElement {
   const issues = data?.issues ?? [];
   const listColumns = data?.listColumns ?? NO_COLUMNS;
   const availableColumns = data?.availableColumns ?? listColumns;
-  const { visibleColumns, isCustomized, toggleColumn, resetColumns } = useColumnPreferences(
+  const { visibleColumns, isCustomized, toggleColumn, moveColumn, resetColumns } = useColumnPreferences(
     user?.id ?? 'anonymous',
     queryId,
     listColumns,
     availableColumns,
   );
+  const { widths, setWidth, resetWidth } = useColumnWidths(user?.id ?? 'anonymous', queryId);
+  // Glisser-déposer des en-têtes : colonne saisie (ref, pas d'effet sur le
+  // rendu) et colonne survolée (état, pour le repère visuel de dépôt).
+  const draggedColumnRef = useRef<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // Déplacement au clavier : le bouton d'en-tête garde le focus une fois la
+  // colonne réordonnée, même si le navigateur l'a perdu en déplaçant le nœud.
+  const headerButtonsRef = useRef(new Map<string, HTMLButtonElement>());
+  const pendingFocusRef = useRef<string | null>(null);
+  const stopResizeRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const column = pendingFocusRef.current;
+    if (!column) return;
+    pendingFocusRef.current = null;
+    headerButtonsRef.current.get(column)?.focus();
+  }, [visibleColumns]);
+
+  // Un redimensionnement en cours ne doit pas survivre au démontage.
+  useEffect(() => () => stopResizeRef.current?.(), []);
 
   const statusOptions = useMemo(() => distinctStatuses(issues), [issues]);
   // Colonnes de dates : affichées sans l'heure et filtrées par période (du/au)
@@ -106,10 +128,12 @@ export function IssueList(): ReactElement {
 
   // Seuls les filtres des colonnes affichées s'appliquent : masquer une
   // colonne retire aussi son filtre, sinon il agirait sans être visible.
+  const visibleNames = useMemo(() => visibleColumns.map((col) => col.fieldName), [visibleColumns]);
   const filteredIssues = useMemo(
     () =>
       issues.filter((issue) => {
         if (statusFilter && issue.status !== statusFilter) return false;
+        if (!matchesIssueSearch(issue, globalSearch, visibleNames, dateColumns)) return false;
         for (const col of visibleColumns) {
           const fieldValue = issue.extraFields[col.fieldName];
           if (dateColumns.has(col.fieldName)) {
@@ -122,12 +146,13 @@ export function IssueList(): ReactElement {
         }
         return true;
       }),
-    [issues, statusFilter, columnFilters, dateFilters, visibleColumns, dateColumns, textColumns],
+    [issues, statusFilter, globalSearch, columnFilters, dateFilters, visibleColumns, visibleNames, dateColumns, textColumns],
   );
   const sortedIssues = useMemo(() => sortIssues(filteredIssues, sort, dateColumns), [filteredIssues, sort, dateColumns]);
 
   const hasActiveFilters =
     Boolean(statusFilter) ||
+    Boolean(globalSearch.trim()) ||
     visibleColumns.some((col) => {
       const range = dateFilters[col.fieldName];
       return Boolean(columnFilters[col.fieldName] || range?.from || range?.to);
@@ -145,6 +170,11 @@ export function IssueList(): ReactElement {
     setPage(1);
   }
 
+  function changeGlobalSearch(value: string): void {
+    setGlobalSearch(value);
+    setPage(1);
+  }
+
   function changeColumnFilter(fieldName: string, value: string): void {
     setColumnFilters((prev) => ({ ...prev, [fieldName]: value }));
     setPage(1);
@@ -157,6 +187,7 @@ export function IssueList(): ReactElement {
 
   function resetFilters(): void {
     setStatusFilter('');
+    setGlobalSearch('');
     setColumnFilters({});
     setDateFilters({});
     setPage(1);
@@ -167,18 +198,118 @@ export function IssueList(): ReactElement {
     setPage(1);
   }
 
+  // Alt+←/→ sur le bouton d'en-tête : alternative clavier au glisser-déposer.
+  // Les colonnes fixes n'étant pas dans `visibleColumns`, une colonne
+  // dynamique ne peut pas passer devant elles.
+  function moveColumnByKey(event: KeyboardEvent<HTMLButtonElement>, column: string): void {
+    if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+    // Alt+← est aussi le raccourci « Page précédente » du navigateur.
+    event.preventDefault();
+    const index = visibleColumns.findIndex((col) => col.fieldName === column);
+    const neighbor = visibleColumns[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+    if (index === -1 || !neighbor) return;
+    pendingFocusRef.current = column;
+    moveColumn(column, neighbor.fieldName);
+  }
+
+  function startDrag(event: DragEvent<HTMLTableCellElement>, column: string): void {
+    draggedColumnRef.current = column;
+    event.dataTransfer.effectAllowed = 'move';
+    // Firefox n'entame le glisser que si des données sont attachées.
+    event.dataTransfer.setData('text/plain', column);
+  }
+
+  function dragOverColumn(event: DragEvent<HTMLTableCellElement>, column: string): void {
+    if (!draggedColumnRef.current) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTarget(column);
+  }
+
+  function dropOnColumn(event: DragEvent<HTMLTableCellElement>, column: string): void {
+    event.preventDefault();
+    const dragged = draggedColumnRef.current;
+    endDrag();
+    if (dragged) moveColumn(dragged, column);
+  }
+
+  function endDrag(): void {
+    draggedColumnRef.current = null;
+    setDropTarget(null);
+  }
+
+  // Poignée de redimensionnement : la largeur suit la souris depuis la
+  // largeur rendue au moment de la saisie ; le hook la borne à 60–800 px.
+  function startResize(event: ReactMouseEvent<HTMLSpanElement>, column: string): void {
+    if (event.button !== 0) return;
+    // Empêche à la fois la sélection de texte et le glisser de l'en-tête.
+    event.preventDefault();
+    event.stopPropagation();
+    const th = event.currentTarget.closest('th');
+    if (!th) return;
+    const startX = event.clientX;
+    const startWidth = th.getBoundingClientRect().width;
+
+    function onMouseMove(moveEvent: MouseEvent): void {
+      setWidth(column, startWidth + moveEvent.clientX - startX);
+    }
+    function stop(): void {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', stop);
+      document.body.classList.remove('is-resizing-column');
+      stopResizeRef.current = null;
+    }
+
+    stopResizeRef.current?.();
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', stop);
+    document.body.classList.add('is-resizing-column');
+    stopResizeRef.current = stop;
+  }
+
   // En-tête cliquable : le bouton porte l'action, le <th> l'état (aria-sort)
-  // pour les lecteurs d'écran ; la flèche n'est qu'un repère visuel.
-  function renderSortableHeader(column: string, label: string): ReactElement {
+  // pour les lecteurs d'écran ; la flèche n'est qu'un repère visuel. Seules
+  // les colonnes dynamiques (`isMovable`) se déplacent ; toutes se
+  // redimensionnent (double-clic sur la poignée : retour à la largeur auto).
+  function renderSortableHeader(column: string, label: string, isMovable = false): ReactElement {
     const direction = sort?.column === column ? sort.direction : null;
+    const width = widths[column];
     return (
-      <th key={column} aria-sort={direction ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}>
-        <button type="button" className="issue-list__sort" onClick={() => toggleSort(column)}>
+      <th
+        key={column}
+        aria-sort={direction ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}
+        style={width ? { width, minWidth: width } : undefined}
+        draggable={isMovable || undefined}
+        data-drop-target={dropTarget === column || undefined}
+        onDragStart={isMovable ? (e) => startDrag(e, column) : undefined}
+        onDragOver={isMovable ? (e) => dragOverColumn(e, column) : undefined}
+        onDragLeave={isMovable ? () => setDropTarget((prev) => (prev === column ? null : prev)) : undefined}
+        onDrop={isMovable ? (e) => dropOnColumn(e, column) : undefined}
+        onDragEnd={isMovable ? endDrag : undefined}
+      >
+        <button
+          type="button"
+          className="issue-list__sort"
+          onClick={() => toggleSort(column)}
+          onKeyDown={isMovable ? (e) => moveColumnByKey(e, column) : undefined}
+          aria-keyshortcuts={isMovable ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined}
+          title={isMovable ? 'Glisser ou Alt+←/→ pour déplacer la colonne' : undefined}
+          ref={(node) => {
+            if (node) headerButtonsRef.current.set(column, node);
+            else headerButtonsRef.current.delete(column);
+          }}
+        >
           {label}
           <span aria-hidden="true" className="issue-list__sort-icon" data-direction={direction ?? 'none'}>
             {direction === 'desc' ? '▼' : '▲'}
           </span>
         </button>
+        <span
+          aria-hidden="true"
+          className="issue-list__resize"
+          onMouseDown={(e) => startResize(e, column)}
+          onDoubleClick={() => resetWidth(column)}
+        />
       </th>
     );
   }
@@ -232,6 +363,14 @@ export function IssueList(): ReactElement {
           isCustomized={isCustomized}
           onToggle={toggleColumn}
           onReset={resetColumns}
+        />
+        <input
+          type="search"
+          className="issue-list__search"
+          placeholder="Rechercher…"
+          aria-label="Rechercher dans le tableau"
+          value={globalSearch}
+          onChange={(e) => changeGlobalSearch(e.target.value)}
         />
         <span className="issue-list__count">
           {filteredIssues.length} / {issues.length} issue
@@ -323,7 +462,7 @@ export function IssueList(): ReactElement {
                   {renderSortableHeader('summary', 'Résumé')}
                   {renderSortableHeader('status', 'Statut')}
                   {renderSortableHeader('issueType', 'Type')}
-                  {visibleColumns.map((col) => renderSortableHeader(col.fieldName, col.fieldName))}
+                  {visibleColumns.map((col) => renderSortableHeader(col.fieldName, col.fieldName, true))}
                 </tr>
               </thead>
               <tbody>

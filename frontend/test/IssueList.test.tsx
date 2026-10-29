@@ -448,6 +448,140 @@ describe('IssueList', () => {
     });
   });
 
+  describe('lot 2: column order, widths, sticky header, global search', () => {
+    // Libellés des en-têtes, sans la flèche de tri.
+    function headerLabels(table: HTMLElement): string[] {
+      return within(table)
+        .getAllByRole('columnheader')
+        .map((th) => within(th).getAllByRole('button')[0]!.textContent!.replace(/[▲▼]/g, ''));
+    }
+
+    function header(table: HTMLElement, name: string): HTMLElement {
+      return within(table).getByRole('columnheader', { name: new RegExp(name) });
+    }
+
+    async function renderWithBothColumns(): Promise<HTMLElement> {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+      const table = await screen.findByRole('table');
+      fireEvent.click(screen.getByRole('button', { name: /Colonnes/ }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Raison Sociale' }));
+      return table;
+    }
+
+    const dataTransfer = () => ({ setData: vi.fn(), getData: vi.fn(), effectAllowed: '', dropEffect: '' });
+
+    it('reorders dynamic columns by dragging a header onto another', async () => {
+      const table = await renderWithBothColumns();
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Profil Export', 'Raison Sociale']);
+
+      const dt = dataTransfer();
+      fireEvent.dragStart(header(table, 'Profil Export'), { dataTransfer: dt });
+      fireEvent.dragOver(header(table, 'Raison Sociale'), { dataTransfer: dt });
+      fireEvent.drop(header(table, 'Raison Sociale'), { dataTransfer: dt });
+
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Raison Sociale', 'Profil Export']);
+      const firstRowCells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell');
+      expect(firstRowCells.map((td) => td.textContent).slice(4)).toEqual(['Acme', 'Débutant']);
+    });
+
+    it('keeps Clé, Résumé, Statut and Type fixed at the start', async () => {
+      const table = await renderWithBothColumns();
+      for (const name of ['Clé', 'Résumé', 'Statut', 'Type']) {
+        expect(header(table, name)).not.toHaveAttribute('draggable', 'true');
+      }
+      expect(header(table, 'Profil Export')).toHaveAttribute('draggable', 'true');
+
+      const dt = dataTransfer();
+      fireEvent.dragStart(header(table, 'Raison Sociale'), { dataTransfer: dt });
+      fireEvent.drop(header(table, 'Clé'), { dataTransfer: dt });
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Profil Export', 'Raison Sociale']);
+    });
+
+    it('moves a dynamic column with Alt+Left/Right from its header button and keeps the focus', async () => {
+      const table = await renderWithBothColumns();
+      const button = within(header(table, 'Raison Sociale')).getByRole('button');
+      button.focus();
+
+      fireEvent.keyDown(button, { key: 'ArrowLeft', altKey: true });
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Raison Sociale', 'Profil Export']);
+      expect(button).toHaveFocus();
+
+      // Déjà en tête des colonnes dynamiques : il ne passe pas devant Type.
+      fireEvent.keyDown(button, { key: 'ArrowLeft', altKey: true });
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Raison Sociale', 'Profil Export']);
+
+      fireEvent.keyDown(button, { key: 'ArrowRight', altKey: true });
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Profil Export', 'Raison Sociale']);
+
+      // Sans Alt, les flèches ne déplacent rien.
+      fireEvent.keyDown(button, { key: 'ArrowLeft' });
+      expect(headerLabels(table)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Profil Export', 'Raison Sociale']);
+    });
+
+    it('resizes a column with the handle on its right edge, within 60–800 px, and persists it', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+      const table = await screen.findByRole('table');
+      const th = header(table, 'Résumé');
+      const handle = th.querySelector('.issue-list__resize')!;
+      expect(handle).not.toBeNull();
+
+      fireEvent.mouseDown(handle, { clientX: 100, button: 0 });
+      fireEvent.mouseMove(document, { clientX: 300 });
+      expect(th.style.width).toBe('200px');
+      expect(th.style.minWidth).toBe('200px');
+
+      fireEvent.mouseMove(document, { clientX: 5000 });
+      expect(th.style.width).toBe('800px');
+      fireEvent.mouseUp(document);
+
+      // Après relâchement, la souris ne redimensionne plus.
+      fireEvent.mouseMove(document, { clientX: 150 });
+      expect(th.style.width).toBe('800px');
+      expect(th).not.toHaveAttribute('aria-sort');
+      expect(JSON.parse(localStorage.getItem('jira-issue-viewer.widths.anonymous.q1')!)).toEqual({ summary: 800 });
+    });
+
+    it('restores the automatic width on double-click of the handle', async () => {
+      localStorage.setItem('jira-issue-viewer.widths.anonymous.q1', JSON.stringify({ summary: 300 }));
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+      const table = await screen.findByRole('table');
+      const th = header(table, 'Résumé');
+      expect(th.style.width).toBe('300px');
+
+      fireEvent.doubleClick(th.querySelector('.issue-list__resize')!);
+
+      expect(th.style.width).toBe('');
+      expect(th.style.minWidth).toBe('');
+    });
+
+    it('searches every displayed column from the toolbar and resets with the other filters', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+      const table = await screen.findByRole('table');
+      const search = screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' });
+      const reset = screen.getByRole('button', { name: /Réinitialiser les filtres/ });
+
+      fireEvent.change(search, { target: { value: 'avance' } });
+      expect(bodyRowCount(table)).toBe(1);
+      expect(within(table).getByText('PROJ-2')).toBeInTheDocument();
+      expect(reset).toBeEnabled();
+
+      fireEvent.change(search, { target: { value: 'ticket un' } });
+      expect(within(table).getByText('PROJ-1')).toBeInTheDocument();
+
+      // Raison Sociale n'est pas affichée : elle n'entre pas dans la recherche.
+      fireEvent.change(search, { target: { value: 'globex' } });
+      expect(screen.getByText(/Aucune issue ne correspond à ces filtres/)).toBeInTheDocument();
+
+      fireEvent.click(reset);
+      expect(search).toHaveValue('');
+      expect(bodyRowCount(screen.getByRole('table'))).toBe(2);
+    });
+  });
+
   it('warns that the list is truncated when Jira has more issues than were loaded', async () => {
     vi.mocked(apiFetch).mockResolvedValue({ ...LIST_WITH_30_ISSUES, total: 4200, truncated: true });
     renderWithProviders(<IssueList />);
