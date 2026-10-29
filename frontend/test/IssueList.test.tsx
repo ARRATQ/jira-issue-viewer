@@ -303,6 +303,66 @@ describe('IssueList', () => {
     });
   });
 
+  describe('date columns', () => {
+    const createdIssue = (n: number, created: string) => ({
+      key: `PROJ-${n}`,
+      summary: `Ticket ${n}`,
+      status: 'Open',
+      issueType: 'Task',
+      extraFields: { Created: created },
+    });
+    const LIST_WITH_CREATED = {
+      ...BASE_LIST,
+      listColumns: [{ fieldName: 'Created' }],
+      availableColumns: [{ fieldName: 'Created' }],
+      issues: [
+        createdIssue(1, '2026-10-01T09:15:00.000+0100'),
+        createdIssue(2, '2026-10-15T10:00:00.000+0100'),
+        createdIssue(3, '2026-10-28T23:00:37.887+0100'),
+      ],
+    };
+
+    it('shows the date without the time', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_CREATED);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(within(table).getByText('28/10/2026')).toBeInTheDocument();
+      expect(within(table).queryByText(/T23:00/)).not.toBeInTheDocument();
+    });
+
+    it('filters on a from/to period instead of a list of values', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_CREATED);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(screen.queryByLabelText('Created', { selector: 'select' })).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Created du'), { target: { value: '2026-10-10' } });
+      expect(bodyRowCount(table)).toBe(2);
+      expect(within(table).queryByText('PROJ-1')).not.toBeInTheDocument();
+
+      // Borne "au" inclusive : l'issue créée le 28 au soir reste dans la période.
+      fireEvent.change(screen.getByLabelText('Created au'), { target: { value: '2026-10-28' } });
+      expect(bodyRowCount(table)).toBe(2);
+
+      fireEvent.change(screen.getByLabelText('Created au'), { target: { value: '2026-10-20' } });
+      expect(bodyRowCount(table)).toBe(1);
+      expect(within(table).getByText('PROJ-2')).toBeInTheDocument();
+    });
+
+    it('exports dates without the time', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_CREATED);
+      renderWithProviders(<IssueList />);
+
+      await screen.findByRole('table');
+      fireEvent.click(screen.getByRole('button', { name: /Exporter CSV/ }));
+
+      const lines = exportedCsv().replace('\uFEFF', '').split('\r\n');
+      expect(lines[3]).toBe('PROJ-3;Ticket 3;Open;Task;28/10/2026');
+    });
+  });
+
   it('warns that the list is truncated when Jira has more issues than were loaded', async () => {
     vi.mocked(apiFetch).mockResolvedValue({ ...LIST_WITH_30_ISSUES, total: 4200, truncated: true });
     renderWithProviders(<IssueList />);

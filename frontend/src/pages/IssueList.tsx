@@ -7,6 +7,7 @@ import { useColumnPreferences } from '../hooks/useColumnPreferences';
 import { ApiError } from '../lib/apiClient';
 import { buildIssuesCsv, csvFileName, downloadCsv } from '../lib/csvExport';
 import { paginate } from '../lib/pagination';
+import { formatDisplayDate, isDateColumn, isoDatePart } from '../lib/dateValues';
 import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
 import { ColumnPicker } from '../components/ColumnPicker';
 import { PAGE_SIZE_OPTIONS, Pagination } from '../components/Pagination';
@@ -25,6 +26,11 @@ function distinctColumnValues(issues: IssueSummary[], fieldName: string): string
   return [...values].sort((a, b) => a.localeCompare(b));
 }
 
+function formatCell(value: string | null | undefined, isDate: boolean): string {
+  if (!value) return '—';
+  return isDate ? formatDisplayDate(value) : value;
+}
+
 function distinctStatuses(issues: IssueSummary[]): string[] {
   const values = new Set<string>();
   for (const issue of issues) {
@@ -35,6 +41,21 @@ function distinctStatuses(issues: IssueSummary[]): string[] {
 
 const NO_COLUMNS: FieldRef[] = [];
 
+// Période d'un filtre de date, bornes "AAAA-MM-JJ" incluses ('' = ouverte).
+interface DateRange {
+  from: string;
+  to: string;
+}
+
+const OPEN_RANGE: DateRange = { from: '', to: '' };
+
+function isInRange(value: string | null | undefined, range: DateRange): boolean {
+  if (!range.from && !range.to) return true;
+  const date = isoDatePart(value);
+  if (!date) return false;
+  return (!range.from || date >= range.from) && (!range.to || date <= range.to);
+}
+
 export function IssueList(): ReactElement {
   const { queryId = '' } = useParams();
   const { data, isLoading, isError, error } = useQueryIssues(queryId);
@@ -44,6 +65,7 @@ export function IssueList(): ReactElement {
   const [statusFilter, setStatusFilter] = useState('');
   // Filtres des colonnes dynamiques, indexés par nom de champ.
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [dateFilters, setDateFilters] = useState<Record<string, DateRange>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
@@ -58,13 +80,20 @@ export function IssueList(): ReactElement {
   );
 
   const statusOptions = useMemo(() => distinctStatuses(issues), [issues]);
+  // Colonnes de dates : affichées sans l'heure et filtrées par période (du/au)
+  // plutôt que par une liste de valeurs, quasi uniques d'une issue à l'autre.
+  const dateColumns = useMemo(
+    () => new Set(visibleColumns.filter((col) => isDateColumn(issues, col.fieldName)).map((col) => col.fieldName)),
+    [issues, visibleColumns],
+  );
   const columnOptions = useMemo(
     () =>
       visibleColumns.map((col) => ({
         fieldName: col.fieldName,
-        options: distinctColumnValues(issues, col.fieldName),
+        isDate: dateColumns.has(col.fieldName),
+        options: dateColumns.has(col.fieldName) ? [] : distinctColumnValues(issues, col.fieldName),
       })),
-    [issues, visibleColumns],
+    [issues, visibleColumns, dateColumns],
   );
 
   // Seuls les filtres des colonnes affichées s'appliquent : masquer une
@@ -74,12 +103,17 @@ export function IssueList(): ReactElement {
       issues.filter((issue) => {
         if (statusFilter && issue.status !== statusFilter) return false;
         for (const col of visibleColumns) {
+          const fieldValue = issue.extraFields[col.fieldName];
+          if (dateColumns.has(col.fieldName)) {
+            if (!isInRange(fieldValue, dateFilters[col.fieldName] ?? OPEN_RANGE)) return false;
+            continue;
+          }
           const value = columnFilters[col.fieldName];
-          if (value && issue.extraFields[col.fieldName] !== value) return false;
+          if (value && fieldValue !== value) return false;
         }
         return true;
       }),
-    [issues, statusFilter, columnFilters, visibleColumns],
+    [issues, statusFilter, columnFilters, dateFilters, visibleColumns, dateColumns],
   );
 
   // Pagination purement côté client : le backend renvoie déjà toutes les
@@ -99,6 +133,11 @@ export function IssueList(): ReactElement {
     setPage(1);
   }
 
+  function changeDateFilter(fieldName: string, bound: keyof DateRange, value: string): void {
+    setDateFilters((prev) => ({ ...prev, [fieldName]: { ...(prev[fieldName] ?? OPEN_RANGE), [bound]: value } }));
+    setPage(1);
+  }
+
   function changePageSize(size: number): void {
     setPageSize(size);
     setPage(1);
@@ -106,7 +145,7 @@ export function IssueList(): ReactElement {
 
   function exportCsv(): void {
     if (!data) return;
-    downloadCsv(csvFileName(data.queryName), buildIssuesCsv(filteredIssues, visibleColumns));
+    downloadCsv(csvFileName(data.queryName), buildIssuesCsv(filteredIssues, visibleColumns, dateColumns));
   }
 
   function closeDrawer(): void {
@@ -170,22 +209,48 @@ export function IssueList(): ReactElement {
             ))}
           </select>
         </label>
-        {columnOptions.map((col) => (
-          <label key={col.fieldName}>
-            {col.fieldName}
-            <select
-              value={columnFilters[col.fieldName] ?? ''}
-              onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
-            >
-              <option value="">Tous</option>
-              {col.options.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+        {columnOptions.map((col) =>
+          col.isDate ? (
+            <fieldset key={col.fieldName} className="issue-list__date-range">
+              <legend>{col.fieldName}</legend>
+              <label>
+                du
+                <input
+                  type="date"
+                  aria-label={`${col.fieldName} du`}
+                  value={dateFilters[col.fieldName]?.from ?? ''}
+                  max={dateFilters[col.fieldName]?.to || undefined}
+                  onChange={(e) => changeDateFilter(col.fieldName, 'from', e.target.value)}
+                />
+              </label>
+              <label>
+                au
+                <input
+                  type="date"
+                  aria-label={`${col.fieldName} au`}
+                  value={dateFilters[col.fieldName]?.to ?? ''}
+                  min={dateFilters[col.fieldName]?.from || undefined}
+                  onChange={(e) => changeDateFilter(col.fieldName, 'to', e.target.value)}
+                />
+              </label>
+            </fieldset>
+          ) : (
+            <label key={col.fieldName}>
+              {col.fieldName}
+              <select
+                value={columnFilters[col.fieldName] ?? ''}
+                onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
+              >
+                <option value="">Tous</option>
+                {col.options.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ),
+        )}
       </div>
 
       {filteredIssues.length === 0 ? (
@@ -217,7 +282,9 @@ export function IssueList(): ReactElement {
                     <td>{issue.status ?? '—'}</td>
                     <td>{issue.issueType ?? '—'}</td>
                     {visibleColumns.map((col) => (
-                      <td key={col.fieldName}>{issue.extraFields[col.fieldName] ?? '—'}</td>
+                      <td key={col.fieldName}>
+                        {formatCell(issue.extraFields[col.fieldName], dateColumns.has(col.fieldName))}
+                      </td>
                     ))}
                   </tr>
                 ))}

@@ -1,5 +1,6 @@
 import type { IssueSummary } from '../types/issue';
 import type { FieldRef } from '../types/query';
+import { formatDisplayDate } from './dateValues';
 
 // Séparateur ";" + BOM UTF-8 : c'est ce qu'Excel en locale française ouvre
 // directement, accents compris, sans passer par l'assistant d'import.
@@ -20,8 +21,13 @@ function toCell(value: string | null | undefined): string {
 }
 
 // Exporte exactement ce que montre le tableau : colonnes fixes puis colonnes
-// choisies par l'utilisateur, pour les issues passées (déjà filtrées).
-export function buildIssuesCsv(issues: IssueSummary[], columns: FieldRef[]): string {
+// choisies par l'utilisateur, pour les issues passées (déjà filtrées). Les
+// colonnes de `dateColumns` sont exportées sans l'heure, comme à l'écran.
+export function buildIssuesCsv(
+  issues: IssueSummary[],
+  columns: FieldRef[],
+  dateColumns: ReadonlySet<string> = new Set(),
+): string {
   const header = [...FIXED_HEADERS, ...columns.map((c) => c.fieldName)].map(toCell).join(SEPARATOR);
   const rows = issues.map((issue) =>
     [
@@ -29,7 +35,10 @@ export function buildIssuesCsv(issues: IssueSummary[], columns: FieldRef[]): str
       issue.summary,
       issue.status,
       issue.issueType,
-      ...columns.map((c) => issue.extraFields[c.fieldName]),
+      ...columns.map((c) => {
+        const value = issue.extraFields[c.fieldName];
+        return value && dateColumns.has(c.fieldName) ? formatDisplayDate(value) : value;
+      }),
     ]
       .map(toCell)
       .join(SEPARATOR),
