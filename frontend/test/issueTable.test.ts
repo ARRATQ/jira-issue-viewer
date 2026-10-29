@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchesText, nextSort, sortIssues } from '../src/lib/issueTable';
+import { matchesIssueSearch, matchesText, nextSort, sortIssues } from '../src/lib/issueTable';
 import type { IssueSummary } from '../src/types/issue';
 
 function issue(key: string, extraFields: Record<string, string | null> = {}, status: string | null = null): IssueSummary {
@@ -66,5 +66,37 @@ describe('nextSort', () => {
 
   it('restarts ascending when another column is clicked', () => {
     expect(nextSort({ column: 'Nom', direction: 'desc' }, 'key')).toEqual({ column: 'key', direction: 'asc' });
+  });
+});
+
+describe('matchesIssueSearch', () => {
+  const NO_DATES: ReadonlySet<string> = new Set();
+  const sample: IssueSummary = {
+    key: 'PROJ-42',
+    summary: 'Relance export',
+    status: 'En cours',
+    statusCategory: 'indeterminate',
+    issueType: 'Tâche',
+    extraFields: { Ville: 'Casablanca', Masqué: 'Secret', Created: '2026-10-28T23:00:37.887+0100' },
+  };
+
+  it('searches the key, summary, status and type', () => {
+    expect(matchesIssueSearch(sample, 'proj-42', [], NO_DATES)).toBe(true);
+    expect(matchesIssueSearch(sample, 'relance', [], NO_DATES)).toBe(true);
+    expect(matchesIssueSearch(sample, 'en cours', [], NO_DATES)).toBe(true);
+    expect(matchesIssueSearch(sample, 'tache', [], NO_DATES)).toBe(true);
+  });
+
+  it('searches the visible columns only', () => {
+    expect(matchesIssueSearch(sample, 'casa', ['Ville'], NO_DATES)).toBe(true);
+    expect(matchesIssueSearch(sample, 'secret', ['Ville'], NO_DATES)).toBe(false);
+  });
+
+  it('searches dates as they are displayed', () => {
+    expect(matchesIssueSearch(sample, '28/10/2026', ['Created'], new Set(['Created']))).toBe(true);
+  });
+
+  it('accepts everything when the query is blank', () => {
+    expect(matchesIssueSearch(sample, '  ', [], NO_DATES)).toBe(true);
   });
 });

@@ -78,14 +78,25 @@
   min-width: 10rem;
 }
 
+/* Le tableau défile dans son propre cadre, en hauteur comme en largeur, pour
+   que l'en-tête et la colonne Clé restent visibles (position: sticky). Le
+   cadre porte la bordure et l'arrondi : un overflow: hidden sur le tableau
+   lui-même casserait le sticky. */
+.issue-list .table-scroll {
+  max-height: min(70vh, 48rem);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
 .issue-list__table {
   width: 100%;
   min-width: 40rem;
-  border-collapse: collapse;
+  /* separate : avec collapse, les bordures ne suivent pas les cellules figées. */
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
 }
 
 .issue-list__table th,
@@ -94,11 +105,31 @@
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
 .issue-list__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   color: var(--color-text-muted);
   font-weight: 600;
+  background: var(--color-surface-sunken);
+}
+
+/* Colonne Clé figée à gauche ; le filet à droite la détache des colonnes
+   qui défilent dessous. */
+.issue-list__table th:first-child,
+.issue-list__table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  box-shadow: inset -1px 0 0 var(--color-border);
+}
+
+.issue-list__table thead th:first-child {
+  z-index: 3;
   background: var(--color-surface-sunken);
 }
 
@@ -110,7 +141,8 @@
   cursor: pointer;
 }
 
-.issue-list__table tbody tr:hover {
+.issue-list__table tbody tr:hover,
+.issue-list__table tbody tr:hover td:first-child {
   background: var(--color-surface-sunken);
 }
 
@@ -220,4 +252,77 @@
 .issue-list__reset:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Recherche globale de la barre d'outils. */
+.issue-list__search {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  min-width: 16rem;
+}
+
+.issue-list__search:focus-visible {
+  border-color: var(--color-accent);
+}
+
+/* Colonnes dynamiques déplaçables : la main signale la saisie, le filet
+   d'accent marque la colonne sur laquelle l'en-tête sera déposé. */
+.issue-list__table th[draggable='true'] {
+  cursor: grab;
+}
+
+.issue-list__table th[data-drop-target='true'] {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+  color: var(--color-text);
+}
+
+/* Poignée de redimensionnement sur le bord droit de chaque en-tête : zone de
+   saisie large, trait visible seulement au survol de l'en-tête. */
+.issue-list__resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0.5rem;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.issue-list__resize::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-border);
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.issue-list__table th:hover .issue-list__resize::after {
+  opacity: 1;
+}
+
+.issue-list__resize:hover::after {
+  background: var(--color-accent);
+}
+
+/* Pendant un redimensionnement, le curseur reste en double flèche même hors
+   de la poignée et le texte de la page ne se sélectionne pas. */
+body.is-resizing-column {
+  cursor: col-resize;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .issue-list__resize::after {
+    transition: none;
+  }
 }

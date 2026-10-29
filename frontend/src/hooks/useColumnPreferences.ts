@@ -31,6 +31,7 @@ export interface ColumnPreferences {
   visibleColumns: FieldRef[];
   isCustomized: boolean;
   toggleColumn: (fieldName: string) => void;
+  moveColumn: (fieldName: string, targetFieldName: string) => void;
   resetColumns: () => void;
 }
 
@@ -51,10 +52,10 @@ export function useColumnPreferences(
 
   const visibleColumns = useMemo(() => {
     if (names === null) return defaultColumns;
-    const selected = new Set(names);
-    // Ordre = ordre des colonnes disponibles ; les champs devenus
+    const byName = new Map(availableColumns.map((c) => [c.fieldName, c]));
+    // Ordre = ordre mémorisé par l'utilisateur ; les champs devenus
     // indisponibles (onglet masqué, champ retiré par l'admin) sont ignorés.
-    return availableColumns.filter((c) => selected.has(c.fieldName));
+    return [...new Set(names)].flatMap((name) => byName.get(name) ?? []);
   }, [names, defaultColumns, availableColumns]);
 
   const toggleColumn = useCallback(
@@ -67,10 +68,26 @@ export function useColumnPreferences(
     [key, names, defaultColumns],
   );
 
+  // La colonne déplacée prend la place de la colonne cible : elle passe
+  // après elle en allant vers la droite, avant elle en allant vers la gauche.
+  const moveColumn = useCallback(
+    (fieldName: string, targetFieldName: string) => {
+      const current = names ?? defaultColumns.map((c) => c.fieldName);
+      const from = current.indexOf(fieldName);
+      const to = current.indexOf(targetFieldName);
+      if (from === -1 || to === -1 || from === to) return;
+      const without = current.filter((n) => n !== fieldName);
+      const next = [...without.slice(0, to), fieldName, ...without.slice(to)];
+      writeStored(key, next);
+      setState({ key, names: next });
+    },
+    [key, names, defaultColumns],
+  );
+
   const resetColumns = useCallback(() => {
     writeStored(key, null);
     setState({ key, names: null });
   }, [key]);
 
-  return { visibleColumns, isCustomized: names !== null, toggleColumn, resetColumns };
+  return { visibleColumns, isCustomized: names !== null, toggleColumn, moveColumn, resetColumns };
 }
