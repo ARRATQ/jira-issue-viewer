@@ -126,3 +126,36 @@
 .issue-list__key-button:hover {
   text-decoration: underline;
 }
+
+/* Filtre de date : deux bornes groupées sous le nom du champ. */
+.issue-list__date-range {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.issue-list__date-range legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.issue-list__filters .issue-list__date-range label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.issue-list__date-range input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
