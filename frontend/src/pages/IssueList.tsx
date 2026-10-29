@@ -5,15 +5,26 @@ import { useQueryIssues } from '../hooks/useQueries';
 import { useAuth } from '../hooks/useAuth';
 import { useColumnPreferences } from '../hooks/useColumnPreferences';
 import { useColumnWidths } from '../hooks/useColumnWidths';
+import { useDensity } from '../hooks/useDensity';
+import { useIssueListView } from '../hooks/useIssueListView';
 import { ApiError } from '../lib/apiClient';
 import { buildIssuesCsv, csvFileName, downloadCsv } from '../lib/csvExport';
 import { paginate } from '../lib/pagination';
 import { formatDisplayDate, isDateColumn, isoDatePart } from '../lib/dateValues';
-import { matchesIssueSearch, matchesText, nextSort, sortIssues, TEXT_SEARCH_THRESHOLD } from '../lib/issueTable';
-import type { SortState } from '../lib/issueTable';
+import { matchesColumnFilter, matchesIssueSearch, nextSort, sortIssues, TEXT_SEARCH_THRESHOLD } from '../lib/issueTable';
+import { OPEN_RANGE } from '../lib/issueListView';
+import type { DateRange } from '../lib/issueListView';
+import { describeActiveFilters } from '../lib/activeFilters';
+import type { ActiveFilter } from '../lib/activeFilters';
 import { StatusPill } from '../components/StatusPill';
 import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
 import { ColumnPicker } from '../components/ColumnPicker';
+import { GlobalSearch } from '../components/GlobalSearch';
+import { IssueFilters } from '../components/IssueFilters';
+import { ActiveFilterChips } from '../components/ActiveFilterChips';
+import { StatusSummary } from '../components/StatusSummary';
+import { DensityToggle } from '../components/DensityToggle';
+import { Highlight } from '../components/Highlight';
 import { PAGE_SIZE_OPTIONS, Pagination } from '../components/Pagination';
 import type { IssueSummary } from '../types/issue';
 import type { FieldRef } from '../types/query';
@@ -45,13 +56,10 @@ function distinctStatuses(issues: IssueSummary[]): string[] {
 
 const NO_COLUMNS: FieldRef[] = [];
 
-// Période d'un filtre de date, bornes "AAAA-MM-JJ" incluses ('' = ouverte).
-interface DateRange {
-  from: string;
-  to: string;
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const { [key]: _removed, ...rest } = record;
+  return rest;
 }
-
-const OPEN_RANGE: DateRange = { from: '', to: '' };
 
 function isInRange(value: string | null | undefined, range: DateRange): boolean {
   if (!range.from && !range.to) return true;
@@ -66,14 +74,10 @@ export function IssueList(): ReactElement {
   const { user } = useAuth();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [globalSearch, setGlobalSearch] = useState('');
-  // Filtres des colonnes dynamiques, indexés par nom de champ.
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
-  const [dateFilters, setDateFilters] = useState<Record<string, DateRange>>({});
-  const [sort, setSort] = useState<SortState | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+  // Filtres, recherche, tri et page vivent dans l'URL : un lien partagé ou
+  // une page rafraîchie retrouve exactement la même vue.
+  const { view, updateView } = useIssueListView(PAGE_SIZE_OPTIONS);
+  const { search: globalSearch, status: statusFilter, columnFilters, dateFilters, sort, page, pageSize } = view;
 
   const issues = data?.issues ?? [];
   const listColumns = data?.listColumns ?? NO_COLUMNS;
@@ -85,6 +89,7 @@ export function IssueList(): ReactElement {
     availableColumns,
   );
   const { widths, setWidth, resetWidth } = useColumnWidths(user?.id ?? 'anonymous', queryId);
+  const { density, setDensity } = useDensity(user?.id ?? 'anonymous');
   // Glisser-déposer des en-têtes : colonne saisie (ref, pas d'effet sur le
   // rendu) et colonne survolée (état, pour le repère visuel de dépôt).
   const draggedColumnRef = useRef<string | null>(null);
@@ -129,10 +134,11 @@ export function IssueList(): ReactElement {
   // Seuls les filtres des colonnes affichées s'appliquent : masquer une
   // colonne retire aussi son filtre, sinon il agirait sans être visible.
   const visibleNames = useMemo(() => visibleColumns.map((col) => col.fieldName), [visibleColumns]);
-  const filteredIssues = useMemo(
+  // Le statut est appliqué à part : le récapitulatif par statut compte les
+  // issues retenues par tous les autres filtres.
+  const issuesBeforeStatus = useMemo(
     () =>
       issues.filter((issue) => {
-        if (statusFilter && issue.status !== statusFilter) return false;
         if (!matchesIssueSearch(issue, globalSearch, visibleNames, dateColumns)) return false;
         for (const col of visibleColumns) {
           const fieldValue = issue.extraFields[col.fieldName];
@@ -140,62 +146,62 @@ export function IssueList(): ReactElement {
             if (!isInRange(fieldValue, dateFilters[col.fieldName] ?? OPEN_RANGE)) return false;
             continue;
           }
-          const value = columnFilters[col.fieldName];
-          if (!value) continue;
-          if (textColumns.has(col.fieldName) ? !matchesText(fieldValue, value) : fieldValue !== value) return false;
+          const value = columnFilters[col.fieldName] ?? '';
+          if (!matchesColumnFilter(fieldValue, value, textColumns.has(col.fieldName))) return false;
         }
         return true;
       }),
-    [issues, statusFilter, globalSearch, columnFilters, dateFilters, visibleColumns, visibleNames, dateColumns, textColumns],
+    [issues, globalSearch, columnFilters, dateFilters, visibleColumns, visibleNames, dateColumns, textColumns],
+  );
+  const filteredIssues = useMemo(
+    () => (statusFilter ? issuesBeforeStatus.filter((issue) => issue.status === statusFilter) : issuesBeforeStatus),
+    [issuesBeforeStatus, statusFilter],
   );
   const sortedIssues = useMemo(() => sortIssues(filteredIssues, sort, dateColumns), [filteredIssues, sort, dateColumns]);
 
-  const hasActiveFilters =
-    Boolean(statusFilter) ||
-    Boolean(globalSearch.trim()) ||
-    visibleColumns.some((col) => {
-      const range = dateFilters[col.fieldName];
-      return Boolean(columnFilters[col.fieldName] || range?.from || range?.to);
-    });
+  const activeFilters = useMemo(
+    () => describeActiveFilters(view, visibleNames, textColumns, dateColumns),
+    [view, visibleNames, textColumns, dateColumns],
+  );
 
   // Pagination purement côté client : le backend renvoie déjà toutes les
   // issues de la requête. L'export CSV, lui, porte sur toutes les issues
   // filtrées, pas seulement sur la page affichée.
   const currentPage = paginate(sortedIssues, page, pageSize);
 
-  // Tout changement de filtre ramène en page 1 : la page courante n'a plus de
-  // sens une fois la liste recomposée.
   function changeStatusFilter(value: string): void {
-    setStatusFilter(value);
-    setPage(1);
+    updateView({ status: value });
   }
 
   function changeGlobalSearch(value: string): void {
-    setGlobalSearch(value);
-    setPage(1);
+    updateView({ search: value });
   }
 
   function changeColumnFilter(fieldName: string, value: string): void {
-    setColumnFilters((prev) => ({ ...prev, [fieldName]: value }));
-    setPage(1);
+    updateView({ columnFilters: { ...columnFilters, [fieldName]: value } });
   }
 
   function changeDateFilter(fieldName: string, bound: keyof DateRange, value: string): void {
-    setDateFilters((prev) => ({ ...prev, [fieldName]: { ...(prev[fieldName] ?? OPEN_RANGE), [bound]: value } }));
-    setPage(1);
+    updateView({ dateFilters: { ...dateFilters, [fieldName]: { ...(dateFilters[fieldName] ?? OPEN_RANGE), [bound]: value } } });
   }
 
   function resetFilters(): void {
-    setStatusFilter('');
-    setGlobalSearch('');
-    setColumnFilters({});
-    setDateFilters({});
-    setPage(1);
+    updateView({ search: '', status: '', columnFilters: {}, dateFilters: {} });
+  }
+
+  function removeFilter(filter: ActiveFilter): void {
+    if (filter.kind === 'search') updateView({ search: '' });
+    else if (filter.kind === 'status') updateView({ status: '' });
+    else if (filter.kind === 'column') updateView({ columnFilters: withoutKey(columnFilters, filter.field ?? '') });
+    else updateView({ dateFilters: withoutKey(dateFilters, filter.field ?? '') });
   }
 
   function toggleSort(column: string): void {
-    setSort((prev) => nextSort(prev, column));
-    setPage(1);
+    updateView({ sort: nextSort(sort, column) });
+  }
+
+  function setPage(value: number): void {
+    updateView({ page: value });
   }
 
   // Alt+←/→ sur le bouton d'en-tête : alternative clavier au glisser-déposer.
@@ -315,8 +321,7 @@ export function IssueList(): ReactElement {
   }
 
   function changePageSize(size: number): void {
-    setPageSize(size);
-    setPage(1);
+    updateView({ pageSize: size });
   }
 
   function exportCsv(): void {
@@ -357,21 +362,7 @@ export function IssueList(): ReactElement {
       )}
 
       <div className="issue-list__toolbar">
-        <ColumnPicker
-          availableColumns={availableColumns}
-          visibleColumns={visibleColumns}
-          isCustomized={isCustomized}
-          onToggle={toggleColumn}
-          onReset={resetColumns}
-        />
-        <input
-          type="search"
-          className="issue-list__search"
-          placeholder="Rechercher…"
-          aria-label="Rechercher dans le tableau"
-          value={globalSearch}
-          onChange={(e) => changeGlobalSearch(e.target.value)}
-        />
+        <GlobalSearch value={globalSearch} onChange={changeGlobalSearch} />
         <span className="issue-list__count">
           {filteredIssues.length} / {issues.length} issue
           {issues.length > 1 ? 's' : ''}
@@ -381,73 +372,35 @@ export function IssueList(): ReactElement {
         </button>
       </div>
 
-      <div className="issue-list__filters">
-        <label>
-          Statut
-          <select value={statusFilter} onChange={(e) => changeStatusFilter(e.target.value)}>
-            <option value="">Tous</option>
-            {statusOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        </label>
-        {columnOptions.map((col) =>
-          col.isDate ? (
-            <fieldset key={col.fieldName} className="issue-list__date-range">
-              <legend>{col.fieldName}</legend>
-              <label>
-                du
-                <input
-                  type="date"
-                  aria-label={`${col.fieldName} du`}
-                  value={dateFilters[col.fieldName]?.from ?? ''}
-                  max={dateFilters[col.fieldName]?.to || undefined}
-                  onChange={(e) => changeDateFilter(col.fieldName, 'from', e.target.value)}
-                />
-              </label>
-              <label>
-                au
-                <input
-                  type="date"
-                  aria-label={`${col.fieldName} au`}
-                  value={dateFilters[col.fieldName]?.to ?? ''}
-                  min={dateFilters[col.fieldName]?.from || undefined}
-                  onChange={(e) => changeDateFilter(col.fieldName, 'to', e.target.value)}
-                />
-              </label>
-            </fieldset>
-          ) : col.isText ? (
-            <label key={col.fieldName}>
-              {col.fieldName}
-              <input
-                type="search"
-                placeholder="Contient…"
-                value={columnFilters[col.fieldName] ?? ''}
-                onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
-              />
-            </label>
-          ) : (
-            <label key={col.fieldName}>
-              {col.fieldName}
-              <select
-                value={columnFilters[col.fieldName] ?? ''}
-                onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
-              >
-                <option value="">Tous</option>
-                {col.options.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ),
-        )}
-        <button type="button" className="issue-list__reset" onClick={resetFilters} disabled={!hasActiveFilters}>
-          Réinitialiser les filtres
-        </button>
+      <IssueFilters
+        statusOptions={statusOptions}
+        status={statusFilter}
+        columns={columnOptions}
+        columnFilters={columnFilters}
+        dateFilters={dateFilters}
+        canReset={activeFilters.length > 0}
+        onStatusChange={changeStatusFilter}
+        onColumnFilterChange={changeColumnFilter}
+        onDateFilterChange={changeDateFilter}
+        onReset={resetFilters}
+      />
+
+      <ActiveFilterChips filters={activeFilters} onRemove={removeFilter} />
+
+      {/* Barre collée au tableau : ce qui agit sur son affichage (statuts,
+          densité, colonnes) se trouve juste au-dessus des colonnes concernées. */}
+      <div className="issue-list__table-bar">
+        <StatusSummary issues={issuesBeforeStatus} activeStatus={statusFilter} onSelect={changeStatusFilter} />
+        <div className="issue-list__table-tools">
+          <DensityToggle density={density} onChange={setDensity} />
+          <ColumnPicker
+            availableColumns={availableColumns}
+            visibleColumns={visibleColumns}
+            isCustomized={isCustomized}
+            onToggle={toggleColumn}
+            onReset={resetColumns}
+          />
+        </div>
       </div>
 
       {filteredIssues.length === 0 ? (
@@ -455,7 +408,7 @@ export function IssueList(): ReactElement {
       ) : (
         <>
           <div className="table-scroll">
-            <table className="issue-list__table">
+            <table className="issue-list__table" data-density={density}>
               <thead>
                 <tr>
                   {renderSortableHeader('key', 'Clé')}
@@ -470,15 +423,20 @@ export function IssueList(): ReactElement {
                   <tr key={issue.key} onClick={() => setSelectedKey(issue.key)} className="issue-list__row">
                     <td>
                       <button type="button" className="issue-list__key-button">
-                        {issue.key}
+                        <Highlight text={issue.key} query={globalSearch} />
                       </button>
                     </td>
-                    <td>{issue.summary}</td>
+                    <td>
+                      <Highlight text={issue.summary} query={globalSearch} />
+                    </td>
                     <td>{issue.status ? <StatusPill label={issue.status} category={issue.statusCategory} /> : '—'}</td>
-                    <td>{issue.issueType ?? '—'}</td>
+                    <td>{issue.issueType ? <Highlight text={issue.issueType} query={globalSearch} /> : '—'}</td>
                     {visibleColumns.map((col) => (
                       <td key={col.fieldName}>
-                        {formatCell(issue.extraFields[col.fieldName], dateColumns.has(col.fieldName))}
+                        <Highlight
+                          text={formatCell(issue.extraFields[col.fieldName], dateColumns.has(col.fieldName))}
+                          query={globalSearch}
+                        />
                       </td>
                     ))}
                   </tr>

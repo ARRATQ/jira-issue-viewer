@@ -47,6 +47,18 @@ export function matchesIssueSearch(
   });
 }
 
+// Valeurs réservées d'un filtre de colonne : « vide » / « non vide » (par
+// exemple les dossiers sans ICE). Le préfixe « : » les distingue des valeurs Jira.
+export const EMPTY_FILTER = ':vide';
+export const NOT_EMPTY_FILTER = ':nonvide';
+
+export function matchesColumnFilter(value: string | null | undefined, filter: string, isText: boolean): boolean {
+  if (!filter) return true;
+  if (filter === EMPTY_FILTER) return !value;
+  if (filter === NOT_EMPTY_FILTER) return Boolean(value);
+  return isText ? matchesText(value, filter) : value === filter;
+}
+
 function columnValue(issue: IssueSummary, column: string): string | null | undefined {
   if (FIXED_COLUMNS.includes(column)) return issue[column as FixedColumn];
   return issue.extraFields[column];

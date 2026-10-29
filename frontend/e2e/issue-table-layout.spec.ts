@@ -103,4 +103,20 @@ test.describe('tableau des issues : en-tête figé, largeurs, ordre des colonnes
     await expect(page.getByRole('table')).toBeVisible();
     expect(await headerLabels(page)).toEqual(['Clé', 'Résumé', 'Statut', 'Type', 'Raison Sociale', 'Profil Export']);
   });
+
+  test('keeps filters and search in a shareable URL that survives a reload', async ({ page }) => {
+    await page.keyboard.press('/');
+    await page.keyboard.type('ticket 1');
+    await page.getByRole('group', { name: 'Répartition des issues' }).getByRole('button', { name: /^Open/ }).click();
+
+    await expect(page).toHaveURL(/q=ticket\+1/);
+    await expect(page).toHaveURL(/statut=Open/);
+    const rows = page.locator('.issue-list__table tbody tr');
+    const count = await rows.count();
+
+    await page.reload();
+    await expect(page.getByRole('searchbox', { name: 'Rechercher dans le tableau' })).toHaveValue('ticket 1');
+    await expect(rows).toHaveCount(count);
+    await expect(page.getByRole('list', { name: 'Filtres actifs' }).getByRole('listitem')).toHaveCount(2);
+  });
 });

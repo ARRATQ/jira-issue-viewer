@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { IssueList } from '../src/pages/IssueList';
 
 vi.mock('../src/lib/apiClient', () => ({
@@ -19,14 +19,31 @@ vi.mock('../src/lib/csvExport', async (importOriginal) => {
 import { apiFetch } from '../src/lib/apiClient';
 import { downloadCsv } from '../src/lib/csvExport';
 
+// Expose la query string courante pour vérifier l'état écrit dans l'URL.
+function LocationProbe(): ReactElement {
+  return <span data-testid="location">{useLocation().search}</span>;
+}
+
+function currentParams(): URLSearchParams {
+  return new URLSearchParams(screen.getByTestId('location').textContent ?? '');
+}
+
 // Monte IssueList derrière la route paramétrée dont il lit `queryId`.
-function renderWithProviders(ui: ReactElement) {
+function renderWithProviders(ui: ReactElement, url = '/queries/q1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/queries/q1']}>
+      <MemoryRouter initialEntries={[url]}>
         <Routes>
-          <Route path="/queries/:queryId" element={ui} />
+          <Route
+            path="/queries/:queryId"
+            element={
+              <>
+                {ui}
+                <LocationProbe />
+              </>
+            }
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -579,6 +596,186 @@ describe('IssueList', () => {
       fireEvent.click(reset);
       expect(search).toHaveValue('');
       expect(bodyRowCount(screen.getByRole('table'))).toBe(2);
+    });
+  });
+
+  describe('lot 3: shareable URL, filter chips, empty filter, status summary, density, highlight, layout', () => {
+    it('restores filters, sort and page size from the URL', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_30_ISSUES);
+      renderWithProviders(<IssueList />, '/queries/q1?statut=Done&tri=key&ordre=desc&parPage=50');
+
+      const table = await screen.findByRole('table');
+      expect(bodyRowCount(table)).toBe(15);
+      expect(within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')[0]).toHaveTextContent('PROJ-30');
+      expect(screen.getByLabelText('Statut')).toHaveValue('Done');
+      expect(screen.getByLabelText('Par page')).toHaveValue('50');
+      expect(within(table).getByRole('columnheader', { name: /Clé/ })).toHaveAttribute('aria-sort', 'descending');
+    });
+
+    it('writes filters, search and sort to the URL and drops the page when a filter changes', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_30_ISSUES);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      fireEvent.click(screen.getByRole('button', { name: 'Page suivante' }));
+      expect(currentParams().get('page')).toBe('2');
+
+      fireEvent.change(screen.getByLabelText('Statut'), { target: { value: 'Done' } });
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' }), {
+        target: { value: 'ticket 2' },
+      });
+      fireEvent.click(within(within(table).getByRole('columnheader', { name: /Résumé/ })).getByRole('button'));
+
+      const params = currentParams();
+      expect(params.get('statut')).toBe('Done');
+      expect(params.get('q')).toBe('ticket 2');
+      expect(params.get('tri')).toBe('summary');
+      expect(params.get('page')).toBeNull();
+    });
+
+    it('shows active filters as chips that remove their filter in one click', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(screen.queryByRole('list', { name: 'Filtres actifs' })).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Statut'), { target: { value: 'Done' } });
+      fireEvent.change(screen.getByLabelText('Profil Export'), { target: { value: 'Avancé' } });
+
+      const chips = screen.getByRole('list', { name: 'Filtres actifs' });
+      // Le libellé, sans le « × » du bouton de retrait.
+      expect(within(chips).getAllByRole('listitem').map((li) => li.firstChild!.textContent)).toEqual([
+        'Statut : Done',
+        'Profil Export : Avancé',
+      ]);
+
+      fireEvent.click(within(chips).getByRole('button', { name: 'Retirer le filtre Statut : Done' }));
+
+      expect(screen.getByLabelText('Statut')).toHaveValue('');
+      expect(screen.getByLabelText('Profil Export')).toHaveValue('Avancé');
+      expect(bodyRowCount(table)).toBe(1);
+      expect(within(chips).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('filters a column on empty or filled values', async () => {
+      vi.mocked(apiFetch).mockResolvedValue({
+        ...BASE_LIST,
+        listColumns: [{ fieldName: 'ICE' }, { fieldName: 'Profil Export' }],
+        availableColumns: [{ fieldName: 'ICE' }, { fieldName: 'Profil Export' }],
+        issues: Array.from({ length: 24 }, (_, i) => ({
+          key: `PROJ-${i + 1}`,
+          summary: `Ticket ${i + 1}`,
+          status: 'Open',
+          issueType: 'Task',
+          extraFields: { ICE: i % 4 === 0 ? null : `ICE-${i}`, 'Profil Export': i < 2 ? null : 'Avancé' },
+        })),
+      });
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      const mode = screen.getByLabelText('ICE : mode');
+      const text = screen.getByLabelText('ICE', { selector: 'input' });
+
+      fireEvent.change(mode, { target: { value: ':vide' } });
+      expect(bodyRowCount(table)).toBe(6);
+      expect(text).toBeDisabled();
+
+      fireEvent.change(mode, { target: { value: ':nonvide' } });
+      expect(bodyRowCount(table)).toBe(18);
+
+      fireEvent.change(mode, { target: { value: '' } });
+      expect(text).toBeEnabled();
+      expect(bodyRowCount(table)).toBe(24);
+
+      fireEvent.change(screen.getByLabelText('Profil Export', { selector: 'select' }), { target: { value: ':vide' } });
+      expect(bodyRowCount(table)).toBe(2);
+    });
+
+    it('summarizes issues by status and filters on a click, following the other filters', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_30_ISSUES);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      const summary = screen.getByRole('group', { name: 'Répartition des issues' });
+      const done = within(summary).getByRole('button', { name: 'Done (15)' });
+      expect(done).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(done);
+      expect(bodyRowCount(table)).toBe(15);
+      expect(done).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByLabelText('Statut')).toHaveValue('Done');
+
+      fireEvent.click(done);
+      expect(screen.getByLabelText('Statut')).toHaveValue('');
+
+      // PROJ-1 et PROJ-10..19 contiennent « Ticket 1 » : 7 Open, 4 Done.
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' }), {
+        target: { value: 'Ticket 1' },
+      });
+      expect(within(summary).getByRole('button', { name: 'Open (7)' })).toBeInTheDocument();
+      expect(within(summary).getByRole('button', { name: 'Done (4)' })).toBeInTheDocument();
+    });
+
+    it('switches the table density and remembers it', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(table).toHaveAttribute('data-density', 'comfortable');
+
+      const density = screen.getByRole('group', { name: 'Densité' });
+      fireEvent.click(within(density).getByRole('button', { name: 'Compacte' }));
+
+      expect(table).toHaveAttribute('data-density', 'compact');
+      expect(within(density).getByRole('button', { name: 'Compacte' })).toHaveAttribute('aria-pressed', 'true');
+      expect(localStorage.getItem('jira-issue-viewer.density.anonymous')).toBe('compact');
+    });
+
+    it('highlights the searched text in the cells', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' }), {
+        target: { value: 'deb' },
+      });
+
+      const marks = table.querySelectorAll('mark');
+      expect([...marks].map((m) => m.textContent)).toEqual(['Déb']);
+      expect(marks[0]!.closest('td')).toHaveTextContent('Débutant');
+    });
+
+    it('puts the search first and the column picker right above the table', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      const search = screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' });
+      const picker = screen.getByRole('button', { name: /Colonnes/ });
+      const filters = screen.getByLabelText('Statut');
+
+      const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(follows(search, filters)).toBe(true);
+      expect(follows(filters, picker)).toBe(true);
+      expect(follows(picker, table)).toBe(true);
+      expect(picker.closest('.issue-list__table-bar')).not.toBeNull();
+    });
+
+    it('focuses the search with the "/" key outside of form fields', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      await screen.findByRole('table');
+      const search = screen.getByRole('searchbox', { name: 'Rechercher dans le tableau' });
+
+      fireEvent.keyDown(document.body, { key: '/' });
+      expect(search).toHaveFocus();
+
+      const status = screen.getByLabelText('Statut');
+      status.focus();
+      fireEvent.keyDown(status, { key: '/' });
+      expect(status).toHaveFocus();
     });
   });
 
