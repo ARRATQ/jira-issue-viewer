@@ -8,6 +8,9 @@ import { ApiError } from '../lib/apiClient';
 import { buildIssuesCsv, csvFileName, downloadCsv } from '../lib/csvExport';
 import { paginate } from '../lib/pagination';
 import { formatDisplayDate, isDateColumn, isoDatePart } from '../lib/dateValues';
+import { matchesText, nextSort, sortIssues, TEXT_SEARCH_THRESHOLD } from '../lib/issueTable';
+import type { SortState } from '../lib/issueTable';
+import { StatusPill } from '../components/StatusPill';
 import { IssueDetailDrawer } from '../components/IssueDetailDrawer';
 import { ColumnPicker } from '../components/ColumnPicker';
 import { PAGE_SIZE_OPTIONS, Pagination } from '../components/Pagination';
@@ -66,6 +69,7 @@ export function IssueList(): ReactElement {
   // Filtres des colonnes dynamiques, indexés par nom de champ.
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [dateFilters, setDateFilters] = useState<Record<string, DateRange>>({});
+  const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
@@ -88,12 +92,16 @@ export function IssueList(): ReactElement {
   );
   const columnOptions = useMemo(
     () =>
-      visibleColumns.map((col) => ({
-        fieldName: col.fieldName,
-        isDate: dateColumns.has(col.fieldName),
-        options: dateColumns.has(col.fieldName) ? [] : distinctColumnValues(issues, col.fieldName),
-      })),
+      visibleColumns.map((col) => {
+        const isDate = dateColumns.has(col.fieldName);
+        const options = isDate ? [] : distinctColumnValues(issues, col.fieldName);
+        return { fieldName: col.fieldName, isDate, isText: options.length > TEXT_SEARCH_THRESHOLD, options };
+      }),
     [issues, visibleColumns, dateColumns],
+  );
+  const textColumns = useMemo(
+    () => new Set(columnOptions.filter((col) => col.isText).map((col) => col.fieldName)),
+    [columnOptions],
   );
 
   // Seuls les filtres des colonnes affichées s'appliquent : masquer une
@@ -109,17 +117,26 @@ export function IssueList(): ReactElement {
             continue;
           }
           const value = columnFilters[col.fieldName];
-          if (value && fieldValue !== value) return false;
+          if (!value) continue;
+          if (textColumns.has(col.fieldName) ? !matchesText(fieldValue, value) : fieldValue !== value) return false;
         }
         return true;
       }),
-    [issues, statusFilter, columnFilters, dateFilters, visibleColumns, dateColumns],
+    [issues, statusFilter, columnFilters, dateFilters, visibleColumns, dateColumns, textColumns],
   );
+  const sortedIssues = useMemo(() => sortIssues(filteredIssues, sort, dateColumns), [filteredIssues, sort, dateColumns]);
+
+  const hasActiveFilters =
+    Boolean(statusFilter) ||
+    visibleColumns.some((col) => {
+      const range = dateFilters[col.fieldName];
+      return Boolean(columnFilters[col.fieldName] || range?.from || range?.to);
+    });
 
   // Pagination purement côté client : le backend renvoie déjà toutes les
   // issues de la requête. L'export CSV, lui, porte sur toutes les issues
   // filtrées, pas seulement sur la page affichée.
-  const currentPage = paginate(filteredIssues, page, pageSize);
+  const currentPage = paginate(sortedIssues, page, pageSize);
 
   // Tout changement de filtre ramène en page 1 : la page courante n'a plus de
   // sens une fois la liste recomposée.
@@ -138,6 +155,34 @@ export function IssueList(): ReactElement {
     setPage(1);
   }
 
+  function resetFilters(): void {
+    setStatusFilter('');
+    setColumnFilters({});
+    setDateFilters({});
+    setPage(1);
+  }
+
+  function toggleSort(column: string): void {
+    setSort((prev) => nextSort(prev, column));
+    setPage(1);
+  }
+
+  // En-tête cliquable : le bouton porte l'action, le <th> l'état (aria-sort)
+  // pour les lecteurs d'écran ; la flèche n'est qu'un repère visuel.
+  function renderSortableHeader(column: string, label: string): ReactElement {
+    const direction = sort?.column === column ? sort.direction : null;
+    return (
+      <th key={column} aria-sort={direction ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}>
+        <button type="button" className="issue-list__sort" onClick={() => toggleSort(column)}>
+          {label}
+          <span aria-hidden="true" className="issue-list__sort-icon" data-direction={direction ?? 'none'}>
+            {direction === 'desc' ? '▼' : '▲'}
+          </span>
+        </button>
+      </th>
+    );
+  }
+
   function changePageSize(size: number): void {
     setPageSize(size);
     setPage(1);
@@ -145,7 +190,7 @@ export function IssueList(): ReactElement {
 
   function exportCsv(): void {
     if (!data) return;
-    downloadCsv(csvFileName(data.queryName), buildIssuesCsv(filteredIssues, visibleColumns, dateColumns));
+    downloadCsv(csvFileName(data.queryName), buildIssuesCsv(sortedIssues, visibleColumns, dateColumns));
   }
 
   function closeDrawer(): void {
@@ -234,6 +279,16 @@ export function IssueList(): ReactElement {
                 />
               </label>
             </fieldset>
+          ) : col.isText ? (
+            <label key={col.fieldName}>
+              {col.fieldName}
+              <input
+                type="search"
+                placeholder="Contient…"
+                value={columnFilters[col.fieldName] ?? ''}
+                onChange={(e) => changeColumnFilter(col.fieldName, e.target.value)}
+              />
+            </label>
           ) : (
             <label key={col.fieldName}>
               {col.fieldName}
@@ -251,6 +306,9 @@ export function IssueList(): ReactElement {
             </label>
           ),
         )}
+        <button type="button" className="issue-list__reset" onClick={resetFilters} disabled={!hasActiveFilters}>
+          Réinitialiser les filtres
+        </button>
       </div>
 
       {filteredIssues.length === 0 ? (
@@ -261,13 +319,11 @@ export function IssueList(): ReactElement {
             <table className="issue-list__table">
               <thead>
                 <tr>
-                  <th>Clé</th>
-                  <th>Résumé</th>
-                  <th>Statut</th>
-                  <th>Type</th>
-                  {visibleColumns.map((col) => (
-                    <th key={col.fieldName}>{col.fieldName}</th>
-                  ))}
+                  {renderSortableHeader('key', 'Clé')}
+                  {renderSortableHeader('summary', 'Résumé')}
+                  {renderSortableHeader('status', 'Statut')}
+                  {renderSortableHeader('issueType', 'Type')}
+                  {visibleColumns.map((col) => renderSortableHeader(col.fieldName, col.fieldName))}
                 </tr>
               </thead>
               <tbody>
@@ -279,7 +335,7 @@ export function IssueList(): ReactElement {
                       </button>
                     </td>
                     <td>{issue.summary}</td>
-                    <td>{issue.status ?? '—'}</td>
+                    <td>{issue.status ? <StatusPill label={issue.status} category={issue.statusCategory} /> : '—'}</td>
                     <td>{issue.issueType ?? '—'}</td>
                     {visibleColumns.map((col) => (
                       <td key={col.fieldName}>

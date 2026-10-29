@@ -67,6 +67,7 @@
   font-weight: 500;
 }
 
+.issue-list__filters input[type='search'],
 .issue-list__filters select {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border);
@@ -158,4 +159,65 @@
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--text-sm);
+}
+
+/* En-têtes triables : tout le libellé est cliquable ; la flèche n'apparaît
+   au survol qu'en filigrane, et franchement une fois le tri actif. */
+.issue-list__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.issue-list__sort:hover,
+.issue-list__sort:focus-visible {
+  color: var(--color-text);
+}
+
+.issue-list__sort:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.issue-list__sort-icon {
+  font-size: 0.6rem;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.issue-list__sort:hover .issue-list__sort-icon[data-direction='none'] {
+  opacity: 0.35;
+}
+
+.issue-list__sort-icon:not([data-direction='none']) {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.issue-list__reset {
+  align-self: flex-end;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.issue-list__reset:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.issue-list__reset:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

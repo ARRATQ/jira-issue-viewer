@@ -50,7 +50,21 @@ export interface JiraIssueBase {
 // Vue liste : champs métier supplémentaires affichés en colonnes, définis
 // par requête (SavedQuery.listColumns) — clé = nom de champ Jira demandé.
 export interface JiraIssueSummary extends JiraIssueBase {
+  statusCategory: StatusCategory | null;
   extraFields: Record<string, string | null>;
+}
+
+// Catégorie Jira du statut (À faire / En cours / Terminé) : stable même quand
+// les statuts sont renommés ou ajoutés, elle sert à colorer les pastilles.
+export type StatusCategory = 'new' | 'indeterminate' | 'done';
+
+const STATUS_CATEGORIES: readonly string[] = ['new', 'indeterminate', 'done'];
+
+export function extractStatusCategory(rawStatus: unknown): StatusCategory | null {
+  if (!rawStatus || typeof rawStatus !== 'object') return null;
+  const category = (rawStatus as { statusCategory?: { key?: unknown } }).statusCategory;
+  const key = category?.key;
+  return typeof key === 'string' && STATUS_CATEGORIES.includes(key) ? (key as StatusCategory) : null;
 }
 
 // `total` est le nombre d'issues correspondant au JQL côté Jira ; il peut
@@ -278,6 +292,7 @@ export class JiraClient {
           key: issue.key,
           summary: String(issue.fields.summary ?? ''),
           status: extractScalarFieldValue(issue.fields.status),
+          statusCategory: extractStatusCategory(issue.fields.status),
           issueType: extractScalarFieldValue(issue.fields.issuetype),
           extraFields,
         };

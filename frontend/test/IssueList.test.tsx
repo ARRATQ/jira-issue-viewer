@@ -363,6 +363,91 @@ describe('IssueList', () => {
     });
   });
 
+  describe('lot 1: pills, text search, sort, reset', () => {
+    it('shows the status as a pill colored by its Jira category', async () => {
+      vi.mocked(apiFetch).mockResolvedValue({
+        ...BASE_LIST,
+        issues: [
+          { key: 'PROJ-1', summary: 'Un', status: 'En cours', statusCategory: 'indeterminate', issueType: 'Task', extraFields: {} },
+          { key: 'PROJ-2', summary: 'Deux', status: 'Clôturé', statusCategory: null, issueType: 'Task', extraFields: {} },
+        ],
+      });
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(within(table).getByText('En cours')).toHaveClass('status-pill', 'status-pill--indeterminate');
+      expect(within(table).getByText('Clôturé')).toHaveClass('status-pill', 'status-pill--unknown');
+    });
+
+    it('offers a "contains" text search for columns with many distinct values', async () => {
+      vi.mocked(apiFetch).mockResolvedValue({
+        ...BASE_LIST,
+        listColumns: [{ fieldName: 'Raison Sociale' }, { fieldName: 'Profil Export' }],
+        availableColumns: [{ fieldName: 'Raison Sociale' }, { fieldName: 'Profil Export' }],
+        issues: Array.from({ length: 20 }, (_, i) => ({
+          key: `PROJ-${i + 1}`,
+          summary: `Ticket ${i + 1}`,
+          status: 'Open',
+          statusCategory: 'new',
+          issueType: 'Task',
+          extraFields: {
+            'Raison Sociale': i === 4 ? 'Société Générale Maroc' : `Entreprise ${i + 1}`,
+            'Profil Export': i % 2 ? 'Avancé' : 'Débutant',
+          },
+        })),
+      });
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      expect(screen.getByLabelText('Profil Export', { selector: 'select' })).toBeInTheDocument();
+      const search = screen.getByLabelText('Raison Sociale', { selector: 'input' });
+
+      fireEvent.change(search, { target: { value: 'societe gen' } });
+
+      expect(bodyRowCount(table)).toBe(1);
+      expect(within(table).getByText('PROJ-5')).toBeInTheDocument();
+    });
+
+    it('sorts by a column when its header is clicked, then reverses, then restores the Jira order', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      const firstKey = () => within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')[0]!.textContent;
+      const header = within(table).getByRole('columnheader', { name: /Profil Export/ });
+
+      fireEvent.click(within(header).getByRole('button'));
+      expect(header).toHaveAttribute('aria-sort', 'ascending');
+      expect(firstKey()).toBe('PROJ-2');
+
+      fireEvent.click(within(header).getByRole('button'));
+      expect(header).toHaveAttribute('aria-sort', 'descending');
+      expect(firstKey()).toBe('PROJ-1');
+
+      fireEvent.click(within(header).getByRole('button'));
+      expect(header).not.toHaveAttribute('aria-sort');
+      expect(firstKey()).toBe('PROJ-1');
+    });
+
+    it('resets every active filter in one click', async () => {
+      vi.mocked(apiFetch).mockResolvedValue(LIST_WITH_AVAILABLE_COLUMNS);
+      renderWithProviders(<IssueList />);
+
+      const table = await screen.findByRole('table');
+      const reset = screen.getByRole('button', { name: /Réinitialiser les filtres/ });
+      expect(reset).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText('Statut'), { target: { value: 'Done' } });
+      expect(bodyRowCount(table)).toBe(1);
+      expect(reset).toBeEnabled();
+
+      fireEvent.click(reset);
+      expect(bodyRowCount(table)).toBe(2);
+      expect(screen.getByLabelText('Statut')).toHaveValue('');
+      expect(reset).toBeDisabled();
+    });
+  });
+
   it('warns that the list is truncated when Jira has more issues than were loaded', async () => {
     vi.mocked(apiFetch).mockResolvedValue({ ...LIST_WITH_30_ISSUES, total: 4200, truncated: true });
     renderWithProviders(<IssueList />);
