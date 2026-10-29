@@ -128,6 +128,12 @@
   box-shadow: inset -1px 0 0 var(--color-border);
 }
 
+/* Une clé Jira ne se coupe pas : « PROJ-\n14 » se lit mal. */
+.issue-list__table td:first-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 .issue-list__table thead th:first-child {
   z-index: 3;
   background: var(--color-surface-sunken);
@@ -254,21 +260,6 @@
   cursor: default;
 }
 
-/* Recherche globale de la barre d'outils. */
-.issue-list__search {
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  min-width: 16rem;
-}
-
-.issue-list__search:focus-visible {
-  border-color: var(--color-accent);
-}
-
 /* Colonnes dynamiques déplaçables : la main signale la saisie, le filet
    d'accent marque la colonne sur laquelle l'en-tête sera déposé. */
 .issue-list__table th[draggable='true'] {
@@ -325,4 +316,90 @@ body.is-resizing-column {
   .issue-list__resize::after {
     transition: none;
   }
+}
+
+/* Barre collée au tableau : récapitulatif des statuts à gauche, outils
+   d'affichage (densité, colonnes) à droite, au-dessus des colonnes. */
+.issue-list__table-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.issue-list__table-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* Le sélecteur de colonnes est au bord droit : son panneau s'ouvre vers la
+   gauche pour ne pas sortir de l'écran. */
+.issue-list__table-tools .column-picker__panel {
+  left: auto;
+  right: 0;
+}
+
+/* Densité compacte : plus de lignes à l'écran pour les longues listes. */
+.issue-list__table[data-density='compact'] th,
+.issue-list__table[data-density='compact'] td {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+/* Occurrences de la recherche globale dans les cellules. */
+.search-hit {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--color-accent) 22%, transparent);
+  color: inherit;
+}
+
+/* Filtre texte : mode (contient / vide / non vide) et saisie côte à côte. */
+.issue-list__text-filter {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.issue-list__text-filter legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.issue-list__text-filter-row {
+  display: flex;
+}
+
+.issue-list__text-filter-row select,
+.issue-list__text-filter-row input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.issue-list__text-filter-row select {
+  min-width: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: 0;
+  background: var(--color-surface-sunken);
+}
+
+.issue-list__text-filter-row input {
+  min-width: 10rem;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.issue-list__text-filter-row input:disabled {
+  background: var(--color-surface-sunken);
+  cursor: not-allowed;
 }

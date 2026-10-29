@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchesIssueSearch, matchesText, nextSort, sortIssues } from '../src/lib/issueTable';
+import { EMPTY_FILTER, matchesColumnFilter, matchesIssueSearch, matchesText, NOT_EMPTY_FILTER, nextSort, sortIssues } from '../src/lib/issueTable';
 import type { IssueSummary } from '../src/types/issue';
 
 function issue(key: string, extraFields: Record<string, string | null> = {}, status: string | null = null): IssueSummary {
@@ -98,5 +98,25 @@ describe('matchesIssueSearch', () => {
 
   it('accepts everything when the query is blank', () => {
     expect(matchesIssueSearch(sample, '  ', [], NO_DATES)).toBe(true);
+  });
+});
+
+describe('matchesColumnFilter', () => {
+  it('accepts everything without a filter', () => {
+    expect(matchesColumnFilter(null, '', false)).toBe(true);
+  });
+
+  it('compares list values exactly and text values by fragment', () => {
+    expect(matchesColumnFilter('Avancé', 'Avancé', false)).toBe(true);
+    expect(matchesColumnFilter('Avancé', 'avance', false)).toBe(false);
+    expect(matchesColumnFilter('Société Générale', 'societe', true)).toBe(true);
+  });
+
+  it('keeps only empty or only filled values', () => {
+    expect(matchesColumnFilter(null, EMPTY_FILTER, true)).toBe(true);
+    expect(matchesColumnFilter('', EMPTY_FILTER, false)).toBe(true);
+    expect(matchesColumnFilter('Acme', EMPTY_FILTER, true)).toBe(false);
+    expect(matchesColumnFilter('Acme', NOT_EMPTY_FILTER, false)).toBe(true);
+    expect(matchesColumnFilter(undefined, NOT_EMPTY_FILTER, true)).toBe(false);
   });
 });

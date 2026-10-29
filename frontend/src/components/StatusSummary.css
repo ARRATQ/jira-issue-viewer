@@ -1,0 +1,54 @@
+.status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.status-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out-expo),
+    background var(--duration-fast) var(--ease-out-expo);
+}
+
+.status-summary__item:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.status-summary__item[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.status-summary__count {
+  min-width: 1.5ch;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Un filtre actif sur un autre statut estompe les compteurs non retenus. */
+.status-summary:has([aria-pressed='true']) .status-summary__item[aria-pressed='false'] {
+  opacity: 0.55;
+}
+
+.status-summary:has([aria-pressed='true']) .status-summary__item[aria-pressed='false']:hover {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-summary__item {
+    transition: none;
+  }
+}
