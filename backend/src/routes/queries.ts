@@ -176,8 +176,13 @@ queriesRouter.get(
     }
 
     const client = new JiraClient(await getJiraClientConfig());
-    const attachments = await client.getAttachments(req.params.key!);
-    const attachment = attachments.find((a) => a.id === req.params.id);
+    const { attachments, reporterId } = await client.getAttachmentsWithReporter(req.params.key!);
+    // Même règle de visibilité que le drawer et le zip. Une pièce jointe non
+    // visible répond 404 comme une pièce jointe inexistante : on ne révèle
+    // pas son existence à un USER qui devinerait son id.
+    const attachment = visibleAttachmentsFor(req.user!.role, attachments, reporterId).find(
+      (a) => a.id === req.params.id,
+    );
     if (!attachment) {
       res.status(404).json({ error: 'Pièce jointe introuvable' });
       return;

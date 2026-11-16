@@ -11,7 +11,6 @@ const fakeJiraClient = {
   searchIssues: vi.fn(),
   getIssue: vi.fn(),
   getFieldsMeta: vi.fn(),
-  getAttachments: vi.fn(),
   getAttachmentsWithReporter: vi.fn(),
   getAttachmentStream: vi.fn(),
 };
@@ -322,16 +321,32 @@ describe('GET /api/queries/:queryId/issues/:key', () => {
 });
 
 describe('GET /api/queries/:queryId/issues/:key/attachments/:id', () => {
-  it('streams the attachment content and logs DOWNLOAD_ATTACHMENT', async () => {
-    const query = await createQuery({ name: 'Export', jql: 'project = PROJ' });
-    fakeJiraClient.getAttachments.mockResolvedValue([
-      { id: '1001', filename: 'doc.pdf', mimeType: 'application/pdf', size: 3, contentUrl: 'https://jira.example.com/x' },
-    ]);
+  const REPORTER_DOC = {
+    id: '1001',
+    filename: 'doc.pdf',
+    mimeType: 'application/pdf',
+    size: 3,
+    contentUrl: 'https://jira.example.com/x',
+    authorId: 'reporter',
+    authorName: null,
+  };
+  const INTERNAL_NOTE = { ...REPORTER_DOC, id: '1002', filename: 'note-interne.docx', authorId: 'agent42' };
+
+  function stubJira() {
+    fakeJiraClient.getAttachmentsWithReporter.mockResolvedValue({
+      attachments: [REPORTER_DOC, INTERNAL_NOTE],
+      reporterId: 'reporter',
+    });
     fakeJiraClient.getAttachmentStream.mockResolvedValue({
       body: Readable.toWeb(Readable.from([Buffer.from('abc')])),
       contentType: 'application/pdf',
       contentLength: 3,
     });
+  }
+
+  it("streams a reporter's attachment to USER and logs DOWNLOAD_ATTACHMENT", async () => {
+    const query = await createQuery({ name: 'Export', jql: 'project = PROJ' });
+    stubJira();
 
     const res = await request(createApp())
       .get(`/api/queries/${query.id}/issues/PROJ-1/attachments/1001`)
@@ -346,13 +361,38 @@ describe('GET /api/queries/:queryId/issues/:key/attachments/:id', () => {
     expect(logs[0]).toMatchObject({ action: 'DOWNLOAD_ATTACHMENT', entityKey: '1001', details: { queryId: query.id } });
   });
 
+  it('refuses (404) to USER an attachment not uploaded by the reporter, without fetching or logging it', async () => {
+    const query = await createQuery({ name: 'Export', jql: 'project = PROJ' });
+    stubJira();
+
+    const res = await request(createApp())
+      .get(`/api/queries/${query.id}/issues/PROJ-1/attachments/1002`)
+      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+
+    expect(res.status).toBe(404);
+    expect(fakeJiraClient.getAttachmentStream).not.toHaveBeenCalled();
+    expect(fakePrisma.__state.auditLogs).toHaveLength(0);
+  });
+
+  it('lets ADMIN download any attachment of the issue', async () => {
+    const query = await createQuery({ name: 'Export', jql: 'project = PROJ' });
+    stubJira();
+
+    const res = await request(createApp())
+      .get(`/api/queries/${query.id}/issues/PROJ-1/attachments/1002`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(200);
+    expect(fakeJiraClient.getAttachmentStream).toHaveBeenCalledWith(INTERNAL_NOTE.contentUrl);
+  });
+
   it('returns 404 when the attachment id does not exist on the issue', async () => {
     const query = await createQuery({ name: 'Export', jql: 'project = PROJ' });
-    fakeJiraClient.getAttachments.mockResolvedValue([]);
+    fakeJiraClient.getAttachmentsWithReporter.mockResolvedValue({ attachments: [], reporterId: 'reporter' });
 
     const res = await request(createApp())
       .get(`/api/queries/${query.id}/issues/PROJ-1/attachments/unknown`)
-      .set('Authorization', `Bearer ${tokenFor('USER')}`);
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
 
     expect(res.status).toBe(404);
   });
@@ -362,7 +402,7 @@ describe('GET /api/queries/:queryId/issues/:key/attachments/:id', () => {
       .get('/api/queries/does-not-exist/issues/PROJ-1/attachments/1001')
       .set('Authorization', `Bearer ${tokenFor('USER')}`);
     expect(res.status).toBe(404);
-    expect(fakeJiraClient.getAttachments).not.toHaveBeenCalled();
+    expect(fakeJiraClient.getAttachmentsWithReporter).not.toHaveBeenCalled();
   });
 });
 

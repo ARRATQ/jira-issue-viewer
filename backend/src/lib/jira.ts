@@ -361,16 +361,6 @@ export class JiraClient {
     };
   }
 
-  // Récupère uniquement les métadonnées des pièces jointes d'une issue,
-  // sans charger tous les champs (utilisé pour retrouver l'URL de contenu
-  // avant de streamer un téléchargement).
-  async getAttachments(key: string): Promise<JiraAttachmentMeta[]> {
-    const data = (await this.request(`/rest/api/2/issue/${key}?fields=attachment`)) as {
-      fields: { attachment?: unknown };
-    };
-    return mapAttachments(data.fields.attachment);
-  }
-
   // Pièces jointes + rapporteur : nécessaire pour appliquer côté serveur la
   // règle de visibilité par rôle (USER : pièces jointes du rapporteur seules).
   async getAttachmentsWithReporter(
