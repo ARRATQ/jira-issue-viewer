@@ -52,6 +52,24 @@ export interface JiraIssueBase {
 export interface JiraIssueSummary extends JiraIssueBase {
   statusCategory: StatusCategory | null;
   extraFields: Record<string, string | null>;
+  // Les deux comptes sont calculés car le résultat de recherche est mis en
+  // cache et partagé entre rôles : la route choisit selon le rôle (ADMIN :
+  // toutes, USER : celles du rapporteur, comme dans le drawer).
+  attachmentCounts: { all: number; fromReporter: number };
+}
+
+// Règle de visibilité USER : pièce jointe déposée par le rapporteur.
+export function isReporterAttachment(authorId: string | null, reporterId: string | null): boolean {
+  return authorId !== null && authorId === reporterId;
+}
+
+function countAttachments(rawAttachments: unknown, rawReporter: unknown): JiraIssueSummary['attachmentCounts'] {
+  if (!Array.isArray(rawAttachments)) return { all: 0, fromReporter: 0 };
+  const reporterId = extractUserIdentity(rawReporter).id;
+  const fromReporter = rawAttachments.filter((a) =>
+    isReporterAttachment(extractUserIdentity((a as { author?: unknown })?.author).id, reporterId),
+  ).length;
+  return { all: rawAttachments.length, fromReporter };
 }
 
 // Catégorie Jira du statut (À faire / En cours / Terminé) : stable même quand
@@ -264,7 +282,9 @@ export class JiraClient {
       ids: findFieldIdsByName(fieldsMeta, name),
     }));
     const extraIds = [...new Set(resolvedExtraFields.flatMap((f) => f.ids))];
-    const fields = ['summary', 'status', 'issuetype', ...extraIds].join(',');
+    const fields = [
+      ...new Set(['summary', 'status', 'issuetype', 'attachment', 'reporter', ...extraIds]),
+    ].join(',');
 
     const fetchPage = async (
       startAt: number,
@@ -295,6 +315,7 @@ export class JiraClient {
           statusCategory: extractStatusCategory(issue.fields.status),
           issueType: extractScalarFieldValue(issue.fields.issuetype),
           extraFields,
+          attachmentCounts: countAttachments(issue.fields.attachment, issue.fields.reporter),
         };
       });
       return { issues, total: data.total, maxResults: data.maxResults };
@@ -348,6 +369,20 @@ export class JiraClient {
       fields: { attachment?: unknown };
     };
     return mapAttachments(data.fields.attachment);
+  }
+
+  // Pièces jointes + rapporteur : nécessaire pour appliquer côté serveur la
+  // règle de visibilité par rôle (USER : pièces jointes du rapporteur seules).
+  async getAttachmentsWithReporter(
+    key: string,
+  ): Promise<{ attachments: JiraAttachmentMeta[]; reporterId: string | null }> {
+    const data = (await this.request(`/rest/api/2/issue/${key}?fields=attachment,reporter`)) as {
+      fields: { attachment?: unknown; reporter?: unknown };
+    };
+    return {
+      attachments: mapAttachments(data.fields.attachment),
+      reporterId: extractUserIdentity(data.fields.reporter).id,
+    };
   }
 
   async getAttachmentStream(contentUrl: string): Promise<JiraAttachmentStream> {

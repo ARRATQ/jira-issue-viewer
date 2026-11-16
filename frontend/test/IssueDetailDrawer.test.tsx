@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { IssueDetailDrawer } from '../src/components/IssueDetailDrawer';
 import { setAuth } from '../src/lib/authStore';
@@ -11,7 +11,7 @@ vi.mock('../src/lib/apiClient', () => ({
   ApiError: class ApiError extends Error {},
 }));
 
-import { apiFetch } from '../src/lib/apiClient';
+import { apiFetch, apiFetchBlob } from '../src/lib/apiClient';
 
 const ISSUE_DETAIL = {
   key: 'PROJ-1',
@@ -191,5 +191,68 @@ describe('IssueDetailDrawer — attachments filtered by reporter for the USER ro
 
     expect(await screen.findByText('cahier-des-charges.pdf')).toBeInTheDocument();
     expect(screen.getByText('note-interne.docx')).toBeInTheDocument();
+  });
+
+  it('offers a zip download of every visible attachment when there are several', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    vi.mocked(apiFetchBlob).mockResolvedValue(new Blob(['zip']));
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:zip'), revokeObjectURL: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'a1', email: 'a@example.com', name: 'A', role: 'ADMIN' },
+    });
+
+    renderDrawer();
+    fireEvent.click(await screen.findByRole('button', { name: /Tout télécharger \(2\)/ }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+    expect(apiFetchBlob).toHaveBeenCalledWith('/api/queries/q1/issues/PROJ-1/attachments.zip');
+    clickSpy.mockRestore();
+  });
+
+  it('shows the number of visible attachments in the ticket detail', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'u1', email: 'u@example.com', name: 'U', role: 'USER' },
+    });
+
+    renderDrawer();
+
+    // USER : seule la pièce jointe du rapporteur est visible et comptée.
+    expect(await screen.findByText('Pièces jointes : 1')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pièces jointes 1' })).toBeInTheDocument();
+  });
+
+  it('hides the zip button when only one attachment is visible', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'u1', email: 'u@example.com', name: 'U', role: 'USER' },
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('cahier-des-charges.pdf')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Tout télécharger/ })).not.toBeInTheDocument();
+  });
+
+  it('shows an error when the archive cannot be built', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(ISSUE_WITH_ATTACHMENTS);
+    vi.mocked(apiFetchBlob).mockRejectedValue(new Error('network'));
+    setAuth({
+      accessToken: 't',
+      refreshToken: 'r',
+      user: { id: 'a1', email: 'a@example.com', name: 'A', role: 'ADMIN' },
+    });
+
+    renderDrawer();
+    fireEvent.click(await screen.findByRole('button', { name: /Tout télécharger/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Erreur lors de la création de l'archive");
   });
 });

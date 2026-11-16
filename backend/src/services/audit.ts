@@ -8,6 +8,7 @@ export type AuditAction =
   | 'VIEW_LIST'
   | 'VIEW_ISSUE'
   | 'DOWNLOAD_ATTACHMENT'
+  | 'DOWNLOAD_ATTACHMENTS_ZIP'
   | 'UPDATE_CONFIG'
   | 'CREATE_USER'
   | 'UPDATE_USER'

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Drawer } from './Drawer';
 import { AttachmentItem } from './AttachmentItem';
+import { AttachmentsZipButton } from './AttachmentsZipButton';
 import { useAuth } from '../hooks/useAuth';
 import { useQueryIssue } from '../hooks/useQueries';
 import { ApiError } from '../lib/apiClient';
@@ -74,6 +75,7 @@ export function IssueDetailDrawer({
             <p className="issue-detail-drawer__meta">
               <span>Statut : {data.status ?? '—'}</span>
               <span>Type : {data.issueType ?? '—'}</span>
+              <span>Pièces jointes : {visibleAttachments.length}</span>
             </p>
           </header>
 
@@ -105,7 +107,14 @@ export function IssueDetailDrawer({
           </div>
 
           <section className="issue-detail-drawer__attachments">
-            <h3>Pièces jointes</h3>
+            <div className="issue-detail-drawer__attachments-header">
+              <h3>
+                Pièces jointes <span className="issue-detail-drawer__count">{visibleAttachments.length}</span>
+              </h3>
+              {visibleAttachments.length > 1 && (
+                <AttachmentsZipButton queryId={queryId} issueKey={data.key} count={visibleAttachments.length} />
+              )}
+            </div>
             {visibleAttachments.length === 0 ? (
               <p>Aucune pièce jointe.</p>
             ) : (
