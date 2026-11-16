@@ -47,8 +47,8 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
     const { issues } = await client().searchIssues('project = PROJ');
 
     expect(issues).toEqual([
-      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', statusCategory: 'new', issueType: 'Task', extraFields: {} },
-      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', statusCategory: 'done', issueType: 'Bug', extraFields: {} },
+      { key: 'PROJ-1', summary: 'Ticket un', status: 'Open', statusCategory: 'new', issueType: 'Task', extraFields: {}, attachmentCounts: { all: 0, fromReporter: 0 } },
+      { key: 'PROJ-2', summary: 'Ticket deux', status: 'Done', statusCategory: 'done', issueType: 'Bug', extraFields: {}, attachmentCounts: { all: 0, fromReporter: 0 } },
     ]);
   });
 
@@ -83,8 +83,48 @@ describe('JiraClient (mocked HTTP via undici MockAgent)', () => {
         statusCategory: null,
         issueType: 'Task',
         extraFields: { 'Profil Export': 'Débutant', 'Offre Export': 'Premium' },
+        attachmentCounts: { all: 0, fromReporter: 0 },
       },
     ]);
+  });
+
+  it('counts attachments, all and those uploaded by the reporter, and requests the needed fields', async () => {
+    const pool = mockAgent.get(ORIGIN);
+    let requestedPath = '';
+    pool
+      .intercept({
+        path: (p: string) => {
+          requestedPath = p;
+          return p.startsWith('/jira/rest/api/2/search');
+        },
+        method: 'GET',
+      })
+      .reply(200, {
+        total: 1,
+        issues: [
+          {
+            key: 'PROJ-1',
+            fields: {
+              summary: 'Un',
+              status: null,
+              issuetype: null,
+              reporter: { name: 'jdupont' },
+              attachment: [
+                { id: '1', author: { name: 'jdupont' } },
+                { id: '2', author: { name: 'agent42' } },
+                { id: '3', author: { name: 'jdupont' } },
+                { id: '4' },
+              ],
+            },
+          },
+        ],
+      });
+
+    const { issues } = await client().searchIssues('project = PROJ');
+
+    expect(issues[0]!.attachmentCounts).toEqual({ all: 4, fromReporter: 2 });
+    const fields = new URLSearchParams(requestedPath.split('?')[1]).get('fields')!.split(',');
+    expect(fields).toEqual(expect.arrayContaining(['attachment', 'reporter']));
   });
 
   it('resolves to null an extra field name absent from the catalog, without failing', async () => {
