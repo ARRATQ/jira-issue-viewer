@@ -9,7 +9,8 @@ import { getBranding, getJiraClientConfig, getPublicConfig, setBranding, setConf
 import { logAction } from '../services/audit';
 import { validatePasswordStrength } from '../lib/passwordPolicy';
 import { JiraClient } from '../lib/jira';
-import { exportZipFileName, planExport, writeExportZip, type IssueAttachments } from '../services/attachmentExport';
+import { fetchIssueAttachments, planExport } from '../services/attachmentExport';
+import { createExportTicket } from '../services/exportTickets';
 import {
   createQuery,
   deleteQuery,
@@ -371,29 +372,14 @@ adminRouter.delete(
 
 // --- Catalogue de champs Jira (alimente le sélecteur de champs admin) ---
 
-// Métadonnées des pièces jointes demandées par petits lots parallèles : assez
-// pour ne pas attendre ticket par ticket, sans surcharger l'instance Jira.
-const EXPORT_METADATA_CONCURRENCY = 5;
-
-async function fetchIssueAttachments(client: JiraClient, keys: readonly string[]): Promise<IssueAttachments[]> {
-  const results: IssueAttachments[] = [];
-  for (let i = 0; i < keys.length; i += EXPORT_METADATA_CONCURRENCY) {
-    const batch = await Promise.all(
-      keys.slice(i, i + EXPORT_METADATA_CONCURRENCY).map(async (key) => ({
-        key,
-        attachments: (await client.getAttachmentsWithReporter(key)).attachments,
-      })),
-    );
-    results.push(...batch);
-  }
-  return results;
-}
-
-// Export de toutes les pièces jointes des tickets d'une requête (ADMIN : pas
-// de filtre par rapporteur), pour intégration dans une autre plateforme :
-// un dossier par ticket + manifest.csv (clé du ticket ↔ fichier).
-adminRouter.get(
-  '/queries/:queryId/attachments-export.zip',
+// Prépare l'export de toutes les pièces jointes des tickets d'une requête
+// (ADMIN : pas de filtre par rapporteur), pour intégration dans une autre
+// plateforme. Toutes les vérifications et appels de métadonnées Jira ont lieu
+// ici, avec des erreurs JSON affichables ; la réponse fournit une URL de
+// téléchargement à usage unique (voir routes/downloads.ts) que le navigateur
+// télécharge nativement, sur disque, quelle que soit la taille de l'archive.
+adminRouter.post(
+  '/queries/:queryId/attachments-export',
   asyncHandler(async (req, res) => {
     const savedQuery = await getQueryById(req.params.queryId!);
     if (!savedQuery) {
@@ -424,30 +410,20 @@ adminRouter.get(
       return;
     }
 
-    await logAction({
+    const token = createExportTicket({
       userId: req.user!.sub,
-      action: 'EXPORT_ATTACHMENTS',
-      entityType: 'saved_query',
-      entityKey: savedQuery.id,
-      details: {
-        jql: savedQuery.jql,
-        issueCount: new Set(entries.map((e) => e.issueKey)).size,
-        fileCount: entries.length,
-      },
-      req,
+      queryId: savedQuery.id,
+      queryName: savedQuery.name,
+      jql: savedQuery.jql,
+      entries,
     });
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${exportZipFileName(savedQuery.name)}"`);
-
-    try {
-      await writeExportZip(entries, (a) => client.getAttachmentStream(a.contentUrl), res);
-    } catch (err) {
-      // En-têtes déjà envoyés : on coupe la connexion pour que le client voie
-      // un échec plutôt qu'une archive tronquée mais "valide".
-      console.error(`[attachments-export] ${savedQuery.id}:`, err);
-      res.destroy(err instanceof Error ? err : undefined);
-    }
+    res.json({
+      downloadUrl: `/api/downloads/attachments-export/${token}`,
+      issueCount: new Set(entries.map((e) => e.issueKey)).size,
+      fileCount: entries.length,
+      totalBytes: entries.reduce((sum, e) => sum + e.attachment.size, 0),
+    });
   }),
 );
 

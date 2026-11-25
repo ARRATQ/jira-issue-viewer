@@ -62,26 +62,75 @@ export function zipFileName(issueKey: string): string {
 type OpenStream = (attachment: JiraAttachmentMeta) => Promise<JiraAttachmentStream>;
 
 // Entrée d'archive : fichier distant streamé (pièce jointe) ou contenu texte
-// produit par l'application (ex. manifeste CSV).
-export type ZipEntry =
-  | { name: string; open: () => Promise<JiraAttachmentStream> }
-  | { name: string; content: string };
+// produit par l'application (ex. manifeste CSV). Le contenu peut être
+// calculé au moment de l'écriture, pour refléter les entrées précédentes.
+export interface RemoteZipEntry {
+  name: string;
+  open: () => Promise<JiraAttachmentStream>;
+}
+export type ZipEntry = RemoteZipEntry | { name: string; content: string | (() => string) };
+
+// Le client (navigateur ou proxy) a fermé la connexion avant la fin.
+export class ZipAbortedError extends Error {
+  constructor() {
+    super('Connexion fermée par le client avant la fin de l\'archive');
+    this.name = 'ZipAbortedError';
+  }
+}
+
+export interface WriteZipOptions {
+  // Si fourni, un fichier distant impossible à ouvrir est sauté (et signalé
+  // ici) au lieu d'interrompre toute l'archive.
+  onOpenError?: (entry: RemoteZipEntry, err: unknown) => void;
+}
 
 // Écrit l'archive en streaming dans `output`. Les fichiers distants sont
 // récupérés un par un auprès de Jira : on n'ouvre pas N connexions
 // simultanées et rien n'est chargé entièrement en mémoire.
-export async function writeZip(entries: readonly ZipEntry[], output: Writable): Promise<void> {
+export async function writeZip(
+  entries: readonly ZipEntry[],
+  output: Writable,
+  options: WriteZipOptions = {},
+): Promise<void> {
   const archive = archiver('zip', { zlib: { level: 6 } });
+  let aborted = false;
   const failed = new Promise<never>((_, reject) => {
     archive.on('error', reject);
     archive.on('warning', reject);
+    // Sans ça, une déconnexion laisserait la boucle attendre indéfiniment
+    // un événement 'entry' qui ne viendra jamais, en continuant à solliciter Jira.
+    const onGone = (): void => {
+      if (output.writableFinished) return;
+      aborted = true;
+      reject(new ZipAbortedError());
+    };
+    output.once('close', onGone);
+    output.on('error', onGone);
   });
   failed.catch(() => undefined);
   archive.pipe(output);
 
   try {
     for (const entry of entries) {
-      const data = 'content' in entry ? entry.content : Readable.fromWeb((await entry.open()).body as never);
+      if (aborted) throw new ZipAbortedError();
+      let data: string | Readable;
+      if ('open' in entry) {
+        const opened = await Promise.race([
+          entry.open().then(
+            (stream) => ({ stream }),
+            (error: unknown) => ({ error }),
+          ),
+          failed,
+        ]);
+        if ('error' in opened) {
+          if (!options.onOpenError) throw opened.error;
+          options.onOpenError(entry, opened.error);
+          continue;
+        }
+        data = Readable.fromWeb(opened.stream.body as never);
+      } else {
+        data = typeof entry.content === 'function' ? entry.content() : entry.content;
+      }
       const entryWritten = new Promise<void>((resolve) => archive.once('entry', () => resolve()));
       archive.append(data, { name: entry.name });
       await Promise.race([entryWritten, failed]);

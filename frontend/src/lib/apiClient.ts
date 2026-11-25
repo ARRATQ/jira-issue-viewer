@@ -2,6 +2,12 @@ import { getAuth, setAccessToken, setAuth } from './authStore';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
+// URL absolue d'un chemin d'API, pour les liens ouverts directement par le
+// navigateur (téléchargements natifs) plutôt que via fetch.
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
