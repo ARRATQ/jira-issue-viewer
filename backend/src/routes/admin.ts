@@ -9,8 +9,7 @@ import { getBranding, getJiraClientConfig, getPublicConfig, setBranding, setConf
 import { logAction } from '../services/audit';
 import { validatePasswordStrength } from '../lib/passwordPolicy';
 import { JiraClient } from '../lib/jira';
-import { fetchIssueAttachments, planExport } from '../services/attachmentExport';
-import { createExportTicket } from '../services/exportTickets';
+import { attachmentExportsRouter } from './attachmentExports';
 import {
   createQuery,
   deleteQuery,
@@ -24,6 +23,9 @@ import {
 export const adminRouter = Router();
 
 adminRouter.use(authMiddleware, requireAdmin);
+
+// Export des pièces jointes en tâche de fond (voir routes/attachmentExports.ts).
+adminRouter.use(attachmentExportsRouter);
 
 // Volontairement simple : on vérifie la forme générale, pas la délivrabilité.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -371,61 +373,6 @@ adminRouter.delete(
 );
 
 // --- Catalogue de champs Jira (alimente le sélecteur de champs admin) ---
-
-// Prépare l'export de toutes les pièces jointes des tickets d'une requête
-// (ADMIN : pas de filtre par rapporteur), pour intégration dans une autre
-// plateforme. Toutes les vérifications et appels de métadonnées Jira ont lieu
-// ici, avec des erreurs JSON affichables ; la réponse fournit une URL de
-// téléchargement à usage unique (voir routes/downloads.ts) que le navigateur
-// télécharge nativement, sur disque, quelle que soit la taille de l'archive.
-adminRouter.post(
-  '/queries/:queryId/attachments-export',
-  asyncHandler(async (req, res) => {
-    const savedQuery = await getQueryById(req.params.queryId!);
-    if (!savedQuery) {
-      res.status(404).json({ error: 'Requête introuvable' });
-      return;
-    }
-    if (!savedQuery.jql) {
-      res.status(400).json({ error: "Aucune requête JQL n'est configurée pour cette vue" });
-      return;
-    }
-
-    // Recherche non mise en cache : l'export doit refléter l'état actuel.
-    const client = new JiraClient(await getJiraClientConfig());
-    const { issues, total } = await client.searchIssues(savedQuery.jql);
-    // Un export partiel serait trompeur pour la plateforme cible : on refuse
-    // plutôt que d'omettre silencieusement des tickets.
-    if (issues.length < total) {
-      res.status(422).json({
-        error: `La requête renvoie ${total} tickets, au-delà de la limite de ${issues.length} : affinez le JQL pour exporter en plusieurs fois.`,
-      });
-      return;
-    }
-
-    const keysWithAttachments = issues.filter((i) => i.attachmentCounts.all > 0).map((i) => i.key);
-    const entries = planExport(await fetchIssueAttachments(client, keysWithAttachments));
-    if (entries.length === 0) {
-      res.status(404).json({ error: 'Aucune pièce jointe à exporter pour cette requête' });
-      return;
-    }
-
-    const token = createExportTicket({
-      userId: req.user!.sub,
-      queryId: savedQuery.id,
-      queryName: savedQuery.name,
-      jql: savedQuery.jql,
-      entries,
-    });
-
-    res.json({
-      downloadUrl: `/api/downloads/attachments-export/${token}`,
-      issueCount: new Set(entries.map((e) => e.issueKey)).size,
-      fileCount: entries.length,
-      totalBytes: entries.reduce((sum, e) => sum + e.attachment.size, 0),
-    });
-  }),
-);
 
 adminRouter.get(
   '/jira-fields',

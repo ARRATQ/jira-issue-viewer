@@ -3,7 +3,8 @@ import type { FormEvent, ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminQueries, useCreateQuery, useDeleteQuery, useUpdateQuery } from '../../hooks/useAdminQueries';
 import { ApiError } from '../../lib/apiClient';
-import { QueryAttachmentsExportButton } from '../../components/QueryAttachmentsExportButton';
+import { QueryAttachmentsExport } from '../../components/QueryAttachmentsExport';
+import { useAttachmentExports } from '../../hooks/useAttachmentExports';
 import type { SavedQuery } from '../../types/query';
 import './AdminQueries.css';
 
@@ -12,6 +13,7 @@ export function AdminQueries(): ReactElement {
   const createQuery = useCreateQuery();
   const updateQuery = useUpdateQuery();
   const deleteQuery = useDeleteQuery();
+  const attachmentExports = useAttachmentExports();
 
   const [name, setName] = useState('');
   const [jql, setJql] = useState('');
@@ -62,6 +64,7 @@ export function AdminQueries(): ReactElement {
                 <th>Nom</th>
                 <th>JQL</th>
                 <th>Ordre</th>
+                <th>Pièces jointes</th>
                 <th />
               </tr>
             </thead>
@@ -90,9 +93,19 @@ export function AdminQueries(): ReactElement {
                       ↓
                     </button>
                   </td>
+                  <td className="admin-queries__export">
+                    {query.jql ? (
+                      <QueryAttachmentsExport
+                        queryId={query.id}
+                        queryName={query.name}
+                        job={attachmentExports.data?.exports.find((e) => e.queryId === query.id)}
+                      />
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="admin-queries__actions">
                     <Link to={query.id}>Éditer</Link>
-                    {query.jql && <QueryAttachmentsExportButton queryId={query.id} queryName={query.name} />}
                     <button
                       type="button"
                       className="admin-queries__delete"

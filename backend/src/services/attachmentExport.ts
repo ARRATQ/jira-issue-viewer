@@ -167,6 +167,8 @@ function sleep(ms: number): Promise<void> {
 export interface WriteExportOptions {
   /** Délai de base entre deux tentatives (multiplié par le n° de tentative). */
   retryDelayMs?: number;
+  /** Appelé pour chaque pièce jointe traitée (récupérée ou abandonnée). */
+  onProgress?: (progress: { attachment: JiraAttachmentMeta; ok: boolean }) => void;
 }
 
 // Chaque pièce jointe est d'abord téléchargée entièrement depuis Jira dans un
@@ -192,6 +194,7 @@ export async function writeExportZip(
       try {
         const source = await openStream(attachment);
         await pipeline(Readable.fromWeb(source.body as never), createWriteStream(path));
+        options.onProgress?.({ attachment, ok: true });
         const local = createReadStream(path);
         local.once('close', () => void rm(path, { force: true }));
         return local;
@@ -225,6 +228,7 @@ export async function writeExportZip(
           const entry = byPath.get(zipEntry.name)!;
           const reason = failureReason(err);
           failures.set(entry.attachment.id, reason);
+          options.onProgress?.({ attachment: entry.attachment, ok: false });
           failed.push({
             issueKey: entry.issueKey,
             filename: entry.attachment.filename,
