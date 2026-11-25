@@ -115,4 +115,23 @@ describe('writeAttachmentsZip', () => {
       writeAttachmentsZip([attachment('1', 'a.txt', null), attachment('2', 'b.txt', null)], openStream, output),
     ).rejects.toThrow('Attachment fetch failed');
   });
+
+  it('rejects instead of crashing the process when Jira closes the connection mid-file', async () => {
+    const output = new PassThrough();
+    void collect(output);
+    // Reproduit la prod : quelques octets reçus, puis "other side closed".
+    const broken = new Readable({
+      read() {
+        this.push(Buffer.from('début'));
+        this.destroy(new TypeError('terminated'));
+      },
+    });
+    const openStream = async () => ({
+      body: Readable.toWeb(broken) as never,
+      contentType: 'text/plain',
+      contentLength: null,
+    });
+
+    await expect(writeAttachmentsZip([attachment('1', 'a.txt', null)], openStream, output)).rejects.toThrow();
+  });
 });

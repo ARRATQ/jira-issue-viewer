@@ -24,6 +24,27 @@ function attachment(id: string, filename: string, extra: Partial<JiraAttachmentM
   };
 }
 
+function streamOf(text: string) {
+  return {
+    body: Readable.toWeb(Readable.from([Buffer.from(text)])) as never,
+    contentType: 'text/plain',
+    contentLength: null,
+  };
+}
+
+// Flux Jira qui coupe après quelques octets (SocketError "other side closed").
+function brokenStream() {
+  const readable = new Readable({
+    read() {
+      this.push(Buffer.from('partiel'));
+      this.destroy(new TypeError('terminated'));
+    },
+  });
+  return { body: Readable.toWeb(readable) as never, contentType: 'text/plain', contentLength: null };
+}
+
+const NO_DELAY = { retryDelayMs: 0 };
+
 async function collect(stream: PassThrough): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);
@@ -169,5 +190,68 @@ describe('writeExportZip', () => {
 
     expect(result).toBeInstanceOf(ExportAbortedError);
     expect(opened).toEqual(['1']);
+  });
+
+  it('retries a file whose download is cut mid-way and archives its complete content', async () => {
+    const entries = planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'a.txt'), attachment('2', 'b.txt')] }]);
+    const attempts = new Map<string, number>();
+    const output = new PassThrough();
+    const done = writeExportZip(
+      entries,
+      async (a) => {
+        const n = (attempts.get(a.id) ?? 0) + 1;
+        attempts.set(a.id, n);
+        return a.id === '1' && n === 1 ? brokenStream() : streamOf(`complet-${a.id}`);
+      },
+      output,
+      NO_DELAY,
+    );
+    const [buffer, result] = await Promise.all([collect(output), done]);
+
+    const files = readZip(buffer);
+    expect(files['PROJ-1/a.txt']).toBe('complet-1');
+    expect(files['PROJ-1/b.txt']).toBe('complet-2');
+    expect(attempts.get('1')).toBe(2);
+    expect(result.failed).toEqual([]);
+  });
+
+  it('gives up on a file after 3 attempts, reports it, and exports the others', async () => {
+    const entries = planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'a.txt'), attachment('2', 'b.txt')] }]);
+    let attemptsOnBroken = 0;
+    const output = new PassThrough();
+    const done = writeExportZip(
+      entries,
+      async (a) => {
+        if (a.id === '1') {
+          attemptsOnBroken += 1;
+          return brokenStream();
+        }
+        return streamOf('ok');
+      },
+      output,
+      NO_DELAY,
+    );
+    const [buffer, result] = await Promise.all([collect(output), done]);
+
+    expect(attemptsOnBroken).toBe(3);
+    expect(Object.keys(readZip(buffer))).toEqual(['PROJ-1/b.txt', MANIFEST_NAME]);
+    expect(result.failed).toEqual([{ issueKey: 'PROJ-1', filename: 'a.txt', reason: 'terminated' }]);
+  });
+
+  it('does not retry a file Jira answers with a client error (404)', async () => {
+    const entries = planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'a.txt')] }]);
+    let attempts = 0;
+    const output = new PassThrough();
+    const done = writeExportZip(
+      entries,
+      async () => {
+        attempts += 1;
+        throw new JiraApiError(404, 'Attachment fetch failed');
+      },
+      output,
+      NO_DELAY,
+    );
+    await Promise.all([collect(output), done]);
+    expect(attempts).toBe(1);
   });
 });

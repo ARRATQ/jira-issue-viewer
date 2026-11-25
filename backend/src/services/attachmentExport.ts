@@ -1,4 +1,9 @@
-import type { Writable } from 'node:stream';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable, type Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { JiraApiError, type JiraAttachmentMeta, type JiraAttachmentStream, type JiraClient } from '../lib/jira';
 import { uniqueEntryNames, writeZip } from './attachmentArchive';
 
@@ -143,32 +148,96 @@ function failureReason(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 200) : 'Erreur inconnue';
 }
 
-// Un fichier que Jira refuse de servir (supprimé, droits, erreur réseau) est
-// sauté et signalé dans le manifeste plutôt que de faire échouer tout
-// l'export. Le manifeste est écrit en dernier pour refléter ces échecs.
+// Tentatives par fichier : Jira (ou son proxy) coupe parfois une connexion
+// en plein transfert sur les gros volumes ("other side closed").
+const MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+
+// Erreur client de Jira (404 supprimé, 403 droits…) : réessayer ne servirait
+// à rien. Coupures réseau, 5xx et 429 sont en revanche transitoires.
+function isRetryable(err: unknown): boolean {
+  if (err instanceof JiraApiError) return err.status >= 500 || err.status === 429;
+  return true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface WriteExportOptions {
+  /** Délai de base entre deux tentatives (multiplié par le n° de tentative). */
+  retryDelayMs?: number;
+}
+
+// Chaque pièce jointe est d'abord téléchargée entièrement depuis Jira dans un
+// fichier temporaire, puis ajoutée à l'archive. Ainsi la connexion Jira n'est
+// jamais ralentie par la vitesse du navigateur (elle restait sinon ouverte et
+// inactive, jusqu'à être fermée par Jira), et une coupure peut être
+// réessayée proprement : rien n'a encore été écrit dans le zip.
+// Un fichier refusé définitivement est sauté et signalé dans le manifeste
+// plutôt que de faire échouer tout l'export.
 export async function writeExportZip(
   entries: readonly ExportEntry[],
   openStream: OpenStream,
   output: Writable,
+  options: WriteExportOptions = {},
 ): Promise<ExportResult> {
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jiv-export-'));
+  let finished = false;
+
+  const download = async (attachment: JiraAttachmentMeta, index: number): Promise<Readable> => {
+    const path = join(tempDir, String(index));
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const source = await openStream(attachment);
+        await pipeline(Readable.fromWeb(source.body as never), createWriteStream(path));
+        const local = createReadStream(path);
+        local.once('close', () => void rm(path, { force: true }));
+        return local;
+      } catch (err) {
+        await rm(path, { force: true });
+        if (finished || !isRetryable(err) || attempt >= MAX_ATTEMPTS) throw err;
+        await sleep(retryDelayMs * attempt);
+      }
+    }
+  };
+
   const failures = new Map<string, string>();
   const failed: ExportFailure[] = [];
   // Les chemins sont uniques dans l'archive (planExport) : ils identifient l'entrée.
   const byPath = new Map(entries.map((e) => [e.path, e]));
-  await writeZip(
-    [
-      ...entries.map((e) => ({ name: e.path, open: () => openStream(e.attachment) })),
-      { name: MANIFEST_NAME, content: () => buildManifestCsv(entries, failures) },
-    ],
-    output,
-    {
-      onOpenError: (zipEntry, err) => {
-        const entry = byPath.get(zipEntry.name)!;
-        const reason = failureReason(err);
-        failures.set(entry.attachment.id, reason);
-        failed.push({ issueKey: entry.issueKey, filename: entry.attachment.filename, reason });
+  try {
+    await writeZip(
+      [
+        ...entries.map((e, index) => ({
+          name: e.path,
+          open: () => download(e.attachment, index),
+        })),
+        {
+          name: MANIFEST_NAME,
+          content: () => buildManifestCsv(entries, failures),
+        },
+      ],
+      output,
+      {
+        onOpenError: (zipEntry, err) => {
+          const entry = byPath.get(zipEntry.name)!;
+          const reason = failureReason(err);
+          failures.set(entry.attachment.id, reason);
+          failed.push({
+            issueKey: entry.issueKey,
+            filename: entry.attachment.filename,
+            reason,
+          });
+        },
       },
-    },
-  );
+    );
+  } finally {
+    // Stoppe les nouvelles tentatives d'un téléchargement encore en cours
+    // (client parti) et supprime les fichiers temporaires restants.
+    finished = true;
+    await rm(tempDir, { recursive: true, force: true });
+  }
   return { written: entries.length - failed.length, failed };
 }
