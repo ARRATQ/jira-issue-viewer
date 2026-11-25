@@ -3,6 +3,7 @@ import type { FormEvent, ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminQueries, useCreateQuery, useDeleteQuery, useUpdateQuery } from '../../hooks/useAdminQueries';
 import { ApiError } from '../../lib/apiClient';
+import { QueryAttachmentsExportButton } from '../../components/QueryAttachmentsExportButton';
 import type { SavedQuery } from '../../types/query';
 import './AdminQueries.css';
 
@@ -91,6 +92,7 @@ export function AdminQueries(): ReactElement {
                   </td>
                   <td className="admin-queries__actions">
                     <Link to={query.id}>Éditer</Link>
+                    {query.jql && <QueryAttachmentsExportButton queryId={query.id} queryName={query.name} />}
                     <button
                       type="button"
                       className="admin-queries__delete"

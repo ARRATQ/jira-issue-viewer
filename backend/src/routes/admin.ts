@@ -9,6 +9,7 @@ import { getBranding, getJiraClientConfig, getPublicConfig, setBranding, setConf
 import { logAction } from '../services/audit';
 import { validatePasswordStrength } from '../lib/passwordPolicy';
 import { JiraClient } from '../lib/jira';
+import { exportZipFileName, planExport, writeExportZip, type IssueAttachments } from '../services/attachmentExport';
 import {
   createQuery,
   deleteQuery,
@@ -369,6 +370,86 @@ adminRouter.delete(
 );
 
 // --- Catalogue de champs Jira (alimente le sélecteur de champs admin) ---
+
+// Métadonnées des pièces jointes demandées par petits lots parallèles : assez
+// pour ne pas attendre ticket par ticket, sans surcharger l'instance Jira.
+const EXPORT_METADATA_CONCURRENCY = 5;
+
+async function fetchIssueAttachments(client: JiraClient, keys: readonly string[]): Promise<IssueAttachments[]> {
+  const results: IssueAttachments[] = [];
+  for (let i = 0; i < keys.length; i += EXPORT_METADATA_CONCURRENCY) {
+    const batch = await Promise.all(
+      keys.slice(i, i + EXPORT_METADATA_CONCURRENCY).map(async (key) => ({
+        key,
+        attachments: (await client.getAttachmentsWithReporter(key)).attachments,
+      })),
+    );
+    results.push(...batch);
+  }
+  return results;
+}
+
+// Export de toutes les pièces jointes des tickets d'une requête (ADMIN : pas
+// de filtre par rapporteur), pour intégration dans une autre plateforme :
+// un dossier par ticket + manifest.csv (clé du ticket ↔ fichier).
+adminRouter.get(
+  '/queries/:queryId/attachments-export.zip',
+  asyncHandler(async (req, res) => {
+    const savedQuery = await getQueryById(req.params.queryId!);
+    if (!savedQuery) {
+      res.status(404).json({ error: 'Requête introuvable' });
+      return;
+    }
+    if (!savedQuery.jql) {
+      res.status(400).json({ error: "Aucune requête JQL n'est configurée pour cette vue" });
+      return;
+    }
+
+    // Recherche non mise en cache : l'export doit refléter l'état actuel.
+    const client = new JiraClient(await getJiraClientConfig());
+    const { issues, total } = await client.searchIssues(savedQuery.jql);
+    // Un export partiel serait trompeur pour la plateforme cible : on refuse
+    // plutôt que d'omettre silencieusement des tickets.
+    if (issues.length < total) {
+      res.status(422).json({
+        error: `La requête renvoie ${total} tickets, au-delà de la limite de ${issues.length} : affinez le JQL pour exporter en plusieurs fois.`,
+      });
+      return;
+    }
+
+    const keysWithAttachments = issues.filter((i) => i.attachmentCounts.all > 0).map((i) => i.key);
+    const entries = planExport(await fetchIssueAttachments(client, keysWithAttachments));
+    if (entries.length === 0) {
+      res.status(404).json({ error: 'Aucune pièce jointe à exporter pour cette requête' });
+      return;
+    }
+
+    await logAction({
+      userId: req.user!.sub,
+      action: 'EXPORT_ATTACHMENTS',
+      entityType: 'saved_query',
+      entityKey: savedQuery.id,
+      details: {
+        jql: savedQuery.jql,
+        issueCount: new Set(entries.map((e) => e.issueKey)).size,
+        fileCount: entries.length,
+      },
+      req,
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${exportZipFileName(savedQuery.name)}"`);
+
+    try {
+      await writeExportZip(entries, (a) => client.getAttachmentStream(a.contentUrl), res);
+    } catch (err) {
+      // En-têtes déjà envoyés : on coupe la connexion pour que le client voie
+      // un échec plutôt qu'une archive tronquée mais "valide".
+      console.error(`[attachments-export] ${savedQuery.id}:`, err);
+      res.destroy(err instanceof Error ? err : undefined);
+    }
+  }),
+);
 
 adminRouter.get(
   '/jira-fields',

@@ -61,14 +61,16 @@ export function zipFileName(issueKey: string): string {
 
 type OpenStream = (attachment: JiraAttachmentMeta) => Promise<JiraAttachmentStream>;
 
-// Écrit l'archive en streaming dans `output`. Les pièces jointes sont
-// récupérées une par une auprès de Jira : on n'ouvre pas N connexions
+// Entrée d'archive : fichier distant streamé (pièce jointe) ou contenu texte
+// produit par l'application (ex. manifeste CSV).
+export type ZipEntry =
+  | { name: string; open: () => Promise<JiraAttachmentStream> }
+  | { name: string; content: string };
+
+// Écrit l'archive en streaming dans `output`. Les fichiers distants sont
+// récupérés un par un auprès de Jira : on n'ouvre pas N connexions
 // simultanées et rien n'est chargé entièrement en mémoire.
-export async function writeAttachmentsZip(
-  attachments: readonly JiraAttachmentMeta[],
-  openStream: OpenStream,
-  output: Writable,
-): Promise<void> {
+export async function writeZip(entries: readonly ZipEntry[], output: Writable): Promise<void> {
   const archive = archiver('zip', { zlib: { level: 6 } });
   const failed = new Promise<never>((_, reject) => {
     archive.on('error', reject);
@@ -77,12 +79,11 @@ export async function writeAttachmentsZip(
   failed.catch(() => undefined);
   archive.pipe(output);
 
-  const names = uniqueEntryNames(attachments.map((a) => a.filename));
   try {
-    for (const [index, attachment] of attachments.entries()) {
-      const source = await openStream(attachment);
+    for (const entry of entries) {
+      const data = 'content' in entry ? entry.content : Readable.fromWeb((await entry.open()).body as never);
       const entryWritten = new Promise<void>((resolve) => archive.once('entry', () => resolve()));
-      archive.append(Readable.fromWeb(source.body as never), { name: names[index]! });
+      archive.append(data, { name: entry.name });
       await Promise.race([entryWritten, failed]);
     }
     await Promise.race([archive.finalize(), failed]);
@@ -90,4 +91,16 @@ export async function writeAttachmentsZip(
     archive.abort();
     throw err;
   }
+}
+
+export async function writeAttachmentsZip(
+  attachments: readonly JiraAttachmentMeta[],
+  openStream: OpenStream,
+  output: Writable,
+): Promise<void> {
+  const names = uniqueEntryNames(attachments.map((a) => a.filename));
+  await writeZip(
+    attachments.map((attachment, index) => ({ name: names[index]!, open: () => openStream(attachment) })),
+    output,
+  );
 }
