@@ -66,7 +66,7 @@ type OpenStream = (attachment: JiraAttachmentMeta) => Promise<JiraAttachmentStre
 // calculé au moment de l'écriture, pour refléter les entrées précédentes.
 export interface RemoteZipEntry {
   name: string;
-  open: () => Promise<JiraAttachmentStream>;
+  open: () => Promise<Readable>;
 }
 export type ZipEntry = RemoteZipEntry | { name: string; content: string | (() => string) };
 
@@ -127,13 +127,21 @@ export async function writeZip(
           options.onOpenError(entry, opened.error);
           continue;
         }
-        data = Readable.fromWeb(opened.stream.body as never);
+        data = opened.stream;
       } else {
         data = typeof entry.content === 'function' ? entry.content() : entry.content;
       }
       const entryWritten = new Promise<void>((resolve) => archive.once('entry', () => resolve()));
+      // Un flux source qui casse en cours de route (ex. Jira ferme la
+      // connexion : "other side closed") émet 'error'. Sans écouteur, Node
+      // lève l'erreur et fait tomber tout le processus.
+      const sourceFailed =
+        typeof data === 'string'
+          ? null
+          : new Promise<never>((_, reject) => (data as Readable).once('error', reject));
+      sourceFailed?.catch(() => undefined);
       archive.append(data, { name: entry.name });
-      await Promise.race([entryWritten, failed]);
+      await Promise.race([entryWritten, failed, ...(sourceFailed ? [sourceFailed] : [])]);
     }
     await Promise.race([archive.finalize(), failed]);
   } catch (err) {
@@ -149,7 +157,10 @@ export async function writeAttachmentsZip(
 ): Promise<void> {
   const names = uniqueEntryNames(attachments.map((a) => a.filename));
   await writeZip(
-    attachments.map((attachment, index) => ({ name: names[index]!, open: () => openStream(attachment) })),
+    attachments.map((attachment, index) => ({
+      name: names[index]!,
+      open: async () => Readable.fromWeb((await openStream(attachment)).body as never),
+    })),
     output,
   );
 }
