@@ -7,11 +7,11 @@ import { AdminQueries } from '../src/pages/admin/AdminQueries';
 
 vi.mock('../src/lib/apiClient', () => ({
   apiFetch: vi.fn(),
-  apiFetchBlob: vi.fn(),
+  apiUrl: (path: string) => `https://app.example.com${path}`,
   ApiError: class ApiError extends Error {},
 }));
 
-import { apiFetch, apiFetchBlob, ApiError } from '../src/lib/apiClient';
+import { apiFetch, ApiError } from '../src/lib/apiClient';
 
 const EXISTING = {
   id: 'q1',
@@ -87,11 +87,23 @@ describe('AdminQueries', () => {
     );
   });
 
-  it("downloads the query's attachments export as a zip", async () => {
-    vi.mocked(apiFetchBlob).mockResolvedValue(new Blob(['zip']));
-    const createObjectURL = vi.fn(() => 'blob:export');
-    const revokeObjectURL = vi.fn();
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
+  function stubPrepare(response: Promise<unknown>) {
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation((path: string, options?: RequestInit) =>
+      path === '/api/admin/queries/q1/attachments-export' && options?.method === 'POST' ? response : base(path, options),
+    );
+  }
+
+  it('prepares the export, shows its volume, then hands the one-time URL to a native browser download', async () => {
+    stubPrepare(
+      Promise.resolve({
+        downloadUrl: '/api/downloads/attachments-export/tok',
+        issueCount: 120,
+        fileCount: 3412,
+        totalBytes: 4.2 * 1024 ** 3,
+      }),
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     renderWithProviders(<AdminQueries />);
     await screen.findByText('Export');
@@ -99,15 +111,30 @@ describe('AdminQueries', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
 
     await waitFor(() => expect(click).toHaveBeenCalled());
-    expect(apiFetchBlob).toHaveBeenCalledWith('/api/admin/queries/q1/attachments-export.zip');
+    expect(confirm.mock.calls[0]![0]).toMatch(/3\u202f?412 fichiers.*120 tickets.*4,2 Go/s);
     const link = click.mock.contexts[0] as HTMLAnchorElement;
-    expect(link.download).toMatch(/^pieces-jointes-export-\d{4}-\d{2}-\d{2}\.zip$/);
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:export');
+    expect(link.href).toBe('https://app.example.com/api/downloads/attachments-export/tok');
+    click.mockRestore();
+  });
+
+  it('does not start the download when the admin cancels', async () => {
+    stubPrepare(
+      Promise.resolve({ downloadUrl: '/api/downloads/attachments-export/tok', issueCount: 1, fileCount: 1, totalBytes: 10 }),
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    renderWithProviders(<AdminQueries />);
+    await screen.findByText('Export');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' })).toBeEnabled());
+    expect(click).not.toHaveBeenCalled();
     click.mockRestore();
   });
 
   it('shows the server error when the export is refused', async () => {
-    vi.mocked(apiFetchBlob).mockRejectedValue(new ApiError('La requête renvoie 5000 tickets'));
+    stubPrepare(Promise.reject(new ApiError('La requête renvoie 5000 tickets')));
     renderWithProviders(<AdminQueries />);
     await screen.findByText('Export');
 

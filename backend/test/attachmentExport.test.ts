@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { PassThrough, Readable } from 'node:stream';
 import {
+  ExportAbortedError,
   MANIFEST_NAME,
   buildManifestCsv,
   exportZipFileName,
   planExport,
   writeExportZip,
 } from '../src/services/attachmentExport';
-import type { JiraAttachmentMeta } from '../src/lib/jira';
+import { JiraApiError, type JiraAttachmentMeta } from '../src/lib/jira';
 import { readZip } from './helpers/readZip';
 
 function attachment(id: string, filename: string, extra: Partial<JiraAttachmentMeta> = {}): JiraAttachmentMeta {
@@ -55,6 +56,15 @@ describe('planExport', () => {
 });
 
 describe('buildManifestCsv', () => {
+  it('marks failed files as errors, without a zip path', () => {
+    const entries = planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'a.txt'), attachment('2', 'b.txt')] }]);
+    const csv = buildManifestCsv(entries, new Map([['2', 'HTTP 404']]));
+    expect(csv.split('\r\n').slice(1, 3)).toEqual([
+      'PROJ-1;a.txt;PROJ-1/a.txt;10;text/plain;ok;',
+      'PROJ-1;b.txt;;10;text/plain;erreur;HTTP 404',
+    ]);
+  });
+
   it('writes one row per file with key, original name, zip path, size and mime type', () => {
     const csv = buildManifestCsv(
       planExport([
@@ -65,14 +75,14 @@ describe('buildManifestCsv', () => {
       ]),
     );
     expect(csv).toBe(
-      '﻿cle_ticket;nom_fichier;chemin_dans_zip;taille_octets;type_mime\r\n' +
-        'PROJ-1;"devis;v2.pdf";"PROJ-1/devis;v2.pdf";1234;application/pdf\r\n',
+      '﻿cle_ticket;nom_fichier;chemin_dans_zip;taille_octets;type_mime;statut;erreur\r\n' +
+        'PROJ-1;"devis;v2.pdf";"PROJ-1/devis;v2.pdf";1234;application/pdf;ok;\r\n',
     );
   });
 
   it('escapes double quotes and keeps file names unaltered', () => {
     const csv = buildManifestCsv(planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'le "bon".txt')] }]));
-    expect(csv.split('\r\n')[1]).toBe('PROJ-1;"le ""bon"".txt";"PROJ-1/le ""bon"".txt";10;text/plain');
+    expect(csv.split('\r\n')[1]).toBe('PROJ-1;"le ""bon"".txt";"PROJ-1/le ""bon"".txt";10;text/plain;ok;');
   });
 });
 
@@ -106,15 +116,58 @@ describe('writeExportZip', () => {
     const files = readZip(buffer);
     expect(Object.keys(files)).toEqual(['PROJ-1/a.txt', 'PROJ-2/b.txt', MANIFEST_NAME]);
     expect(files['PROJ-1/a.txt']).toBe('content-1');
-    expect(files[MANIFEST_NAME]).toContain('PROJ-2;b.txt;PROJ-2/b.txt;10;text/plain');
+    expect(files[MANIFEST_NAME]).toContain('PROJ-2;b.txt;PROJ-2/b.txt;10;text/plain;ok;');
   });
 
-  it('rejects when an attachment cannot be fetched', async () => {
-    const entries = planExport([{ key: 'PROJ-1', attachments: [attachment('1', 'a.txt')] }]);
+  it('skips a file Jira refuses to serve, reports it in the manifest and the result, and keeps going', async () => {
+    const entries = planExport([
+      { key: 'PROJ-1', attachments: [attachment('1', 'a.txt'), attachment('2', 'gone.txt')] },
+      { key: 'PROJ-2', attachments: [attachment('3', 'c.txt')] },
+    ]);
+    const output = new PassThrough();
+    const done = writeExportZip(
+      entries,
+      async (a) => {
+        if (a.id === '2') throw new JiraApiError(404, 'Attachment fetch failed');
+        return {
+          body: Readable.toWeb(Readable.from([Buffer.from(`content-${a.id}`)])) as never,
+          contentType: 'text/plain',
+          contentLength: null,
+        };
+      },
+      output,
+    );
+    const [buffer, result] = await Promise.all([collect(output), done]);
+
+    const files = readZip(buffer);
+    expect(Object.keys(files)).toEqual(['PROJ-1/a.txt', 'PROJ-2/c.txt', MANIFEST_NAME]);
+    expect(files[MANIFEST_NAME]).toContain('PROJ-1;gone.txt;;10;text/plain;erreur;HTTP 404');
+    expect(result).toEqual({ written: 2, failed: [{ issueKey: 'PROJ-1', filename: 'gone.txt', reason: 'HTTP 404' }] });
+  });
+
+  it('stops fetching from Jira as soon as the client goes away', async () => {
+    const entries = planExport([
+      { key: 'PROJ-1', attachments: [attachment('1', 'a.txt'), attachment('2', 'b.txt'), attachment('3', 'c.txt')] },
+    ]);
     const output = new PassThrough();
     output.resume();
-    await expect(
-      writeExportZip(entries, async () => Promise.reject(new Error('Jira down')), output),
-    ).rejects.toThrow('Jira down');
+    const opened: string[] = [];
+    const result = await writeExportZip(
+      entries,
+      async (a) => {
+        opened.push(a.id);
+        // Le client se déconnecte pendant le 1er fichier.
+        if (a.id === '1') output.destroy();
+        return {
+          body: Readable.toWeb(Readable.from([Buffer.from('x')])) as never,
+          contentType: 'text/plain',
+          contentLength: null,
+        };
+      },
+      output,
+    ).catch((err: unknown) => err);
+
+    expect(result).toBeInstanceOf(ExportAbortedError);
+    expect(opened).toEqual(['1']);
   });
 });

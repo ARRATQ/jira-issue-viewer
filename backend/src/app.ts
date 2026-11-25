@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { authRouter } from './routes/auth';
 import { queriesRouter } from './routes/queries';
 import { adminRouter } from './routes/admin';
+import { downloadsRouter } from './routes/downloads';
 import { brandingRouter } from './routes/branding';
 import { JiraApiError } from './lib/jira';
 
@@ -27,6 +28,7 @@ export function createApp() {
   app.use('/api/branding', brandingRouter);
   app.use('/api/queries', queriesRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/downloads', downloadsRouter);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
