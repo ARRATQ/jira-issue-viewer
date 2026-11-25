@@ -34,11 +34,37 @@ function renderWithProviders(ui: ReactElement) {
   );
 }
 
+function job(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'job-1',
+    queryId: 'q1',
+    queryName: 'Export',
+    status: 'running',
+    totalFiles: 8044,
+    totalBytes: 5 * 1024 ** 3,
+    doneFiles: 1234,
+    failedFiles: 0,
+    processedBytes: 1.2 * 1024 ** 3,
+    zipBytes: null,
+    error: null,
+    createdAt: '2026-11-25T16:00:00.000Z',
+    finishedAt: null,
+    downloadUrl: null,
+    ...overrides,
+  };
+}
+
+let exportsState: unknown[] = [];
+
 beforeEach(() => {
   vi.clearAllMocks();
+  exportsState = [];
   vi.mocked(apiFetch).mockImplementation((path: string, options?: RequestInit) => {
     if (path === '/api/admin/queries' && (!options || options.method === undefined)) {
       return Promise.resolve({ queries: [EXISTING] });
+    }
+    if (path === '/api/admin/attachments-exports' && (!options || options.method === undefined)) {
+      return Promise.resolve({ exports: exportsState });
     }
     if (path === '/api/admin/queries' && options?.method === 'POST') {
       return Promise.resolve({ ...EXISTING, id: 'q2' });
@@ -87,59 +113,75 @@ describe('AdminQueries', () => {
     );
   });
 
-  function stubPrepare(response: Promise<unknown>) {
+  function stubStart(response: Promise<unknown>) {
     const base = vi.mocked(apiFetch).getMockImplementation()!;
-    vi.mocked(apiFetch).mockImplementation((path: string, options?: RequestInit) =>
-      path === '/api/admin/queries/q1/attachments-export' && options?.method === 'POST' ? response : base(path, options),
-    );
+    vi.mocked(apiFetch).mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/api/admin/queries/q1/attachments-export' && options?.method === 'POST') return response;
+      if (path === '/api/admin/attachments-exports/job-1' && options?.method === 'DELETE') return Promise.resolve(undefined);
+      return base(path, options);
+    });
   }
 
-  it('prepares the export, shows its volume, then hands the one-time URL to a native browser download', async () => {
-    stubPrepare(
-      Promise.resolve({
+  it('starts a background export of the query attachments', async () => {
+    stubStart(Promise.resolve(job({ status: 'preparing' })));
+    renderWithProviders(<AdminQueries />);
+    await screen.findByText('Export');
+
+    exportsState = [job({ status: 'preparing' })];
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/admin/queries/q1/attachments-export', expect.objectContaining({ method: 'POST' })),
+    );
+    expect(await screen.findByText(/Préparation/)).toBeInTheDocument();
+  });
+
+  it('shows the progress of a running export and lets the admin cancel it', async () => {
+    exportsState = [job()];
+    stubStart(Promise.resolve(job()));
+    renderWithProviders(<AdminQueries />);
+
+    const progress = await screen.findByRole('progressbar', { name: 'Progression de l’export de Export' });
+    expect(progress).toHaveAttribute('aria-valuenow', '1234');
+    expect(progress).toHaveAttribute('aria-valuemax', '8044');
+    expect(screen.getByText(/1\s234 \/ 8\s044 fichiers/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler l’export de Export' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/admin/attachments-exports/job-1', expect.objectContaining({ method: 'DELETE' })),
+    );
+  });
+
+  it('offers the finished zip as a native download link with its size and failed files', async () => {
+    exportsState = [
+      job({
+        status: 'done',
+        doneFiles: 8040,
+        failedFiles: 4,
+        zipBytes: 4.9 * 1024 ** 3,
         downloadUrl: '/api/downloads/attachments-export/tok',
-        issueCount: 120,
-        fileCount: 3412,
-        totalBytes: 4.2 * 1024 ** 3,
       }),
-    );
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    ];
     renderWithProviders(<AdminQueries />);
-    await screen.findByText('Export');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
-
-    await waitFor(() => expect(click).toHaveBeenCalled());
-    expect(confirm.mock.calls[0]![0]).toMatch(/3\u202f?412 fichiers.*120 tickets.*4,2 Go/s);
-    const link = click.mock.contexts[0] as HTMLAnchorElement;
-    expect(link.href).toBe('https://app.example.com/api/downloads/attachments-export/tok');
-    click.mockRestore();
+    const link = await screen.findByRole('link', { name: /Télécharger \(4,9 Go\)/ });
+    expect(link).toHaveAttribute('href', 'https://app.example.com/api/downloads/attachments-export/tok');
+    expect(screen.getByText(/4 fichiers en échec/)).toBeInTheDocument();
   });
 
-  it('does not start the download when the admin cancels', async () => {
-    stubPrepare(
-      Promise.resolve({ downloadUrl: '/api/downloads/attachments-export/tok', issueCount: 1, fileCount: 1, totalBytes: 10 }),
-    );
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  it('shows why an export failed', async () => {
+    exportsState = [job({ status: 'failed', error: 'Jira indisponible' })];
     renderWithProviders(<AdminQueries />);
-    await screen.findByText('Export');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
-
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' })).toBeEnabled());
-    expect(click).not.toHaveBeenCalled();
-    click.mockRestore();
+    expect(await screen.findByText(/Jira indisponible/)).toBeInTheDocument();
   });
 
-  it('shows the server error when the export is refused', async () => {
-    stubPrepare(Promise.reject(new ApiError('La requête renvoie 5000 tickets')));
+  it('shows the server error when the export cannot start', async () => {
+    stubStart(Promise.reject(new ApiError('Un export est déjà en cours')));
     renderWithProviders(<AdminQueries />);
     await screen.findByText('Export');
 
     fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('La requête renvoie 5000 tickets');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Un export est déjà en cours');
   });
 });

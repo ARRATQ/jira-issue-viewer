@@ -1,4 +1,7 @@
-import { describe, expect, it, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import request from 'supertest';
 import { Readable } from 'node:stream';
 import { createFakePrisma } from './helpers/fakePrisma';
@@ -39,6 +42,7 @@ beforeEach(() => {
 const { createApp } = await import('../src/app');
 const { signAccessToken } = await import('../src/lib/tokens');
 const { createQuery: createSavedQuery } = await import('../src/services/savedQueries');
+const { clearExportJobs, jobCompletion } = await import('../src/services/exportJobs');
 
 function tokenFor(role: 'ADMIN' | 'USER', sub = 'admin-1') {
   return signAccessToken({ sub, email: `${sub}@example.com`, role });
@@ -527,7 +531,7 @@ describe('GET /api/admin/jira-fields', () => {
   });
 });
 
-describe('attachments export (prepare + one-time download)', () => {
+describe('attachments export jobs (background zip + resumable download)', () => {
   function meta(id: string, filename: string) {
     return {
       id,
@@ -558,21 +562,24 @@ describe('attachments export (prepare + one-time download)', () => {
     });
   }
 
-  function prepare(queryId: string, sub: string, role: 'ADMIN' | 'USER' = 'ADMIN') {
+  function start(queryId: string, sub: string, role: 'ADMIN' | 'USER' = 'ADMIN') {
     return request(createApp())
       .post(`/api/admin/queries/${queryId}/attachments-export`)
       .set('Authorization', `Bearer ${tokenFor(role, sub)}`);
   }
 
-  async function download(url: string) {
+  function list(sub: string) {
     return request(createApp())
-      .get(url)
-      .buffer(true)
-      .parse((res, cb) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
-        res.on('end', () => cb(null, Buffer.concat(chunks)));
-      });
+      .get('/api/admin/attachments-exports')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN', sub)}`);
+  }
+
+  function binary(req: request.Test) {
+    return req.buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
   }
 
   function stubJira() {
@@ -594,81 +601,120 @@ describe('attachments export (prepare + one-time download)', () => {
     });
   }
 
-  it('rejects USER on prepare (403)', async () => {
-    const res = await prepare('any', 'user-1', 'USER');
+  async function startAndFinish(adminId: string) {
+    const query = await createSavedQuery({ name: 'Réclamations', jql: 'project = PROJ' });
+    stubJira();
+    const res = await start(query.id, adminId);
+    await jobCompletion(res.body.id as string);
+    const view = ((await list(adminId)).body.exports as Array<{ id: string; downloadUrl: string }>).find(
+      (j) => j.id === res.body.id,
+    )!;
+    return { query, startRes: res, view };
+  }
+
+  let exportDirectory: string;
+
+  beforeEach(async () => {
+    exportDirectory = await mkdtemp(join(tmpdir(), 'jiv-admin-export-test-'));
+    process.env.EXPORT_DIR = exportDirectory;
+  });
+
+  afterEach(async () => {
+    await clearExportJobs();
+    delete process.env.EXPORT_DIR;
+    await rm(exportDirectory, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['post', '/api/admin/queries/any/attachments-export'],
+    ['get', '/api/admin/attachments-exports'],
+    ['delete', '/api/admin/attachments-exports/any'],
+  ] as const)('rejects USER on %s %s (403)', async (method, path) => {
+    const res = await request(createApp())[method](path).set('Authorization', `Bearer ${tokenFor('USER', 'user-1')}`);
     expect(res.status).toBe(403);
   });
 
   it('returns 404 for an unknown query', async () => {
     const admin = await createAdmin();
-    const res = await prepare('nope', admin.id);
-    expect(res.status).toBe(404);
+    expect((await start('nope', admin.id)).status).toBe(404);
   });
 
-  it('prepares the export: summary and a one-time download URL, without calling Jira for empty tickets', async () => {
+  it('starts the export in the background (202), then lists it as done with a download URL, and logs it', async () => {
     const admin = await createAdmin();
-    const query = await createSavedQuery({ name: 'Réclamations', jql: 'project = PROJ' });
-    stubJira();
+    const { query, startRes, view } = await startAndFinish(admin.id);
 
-    const res = await prepare(query.id, admin.id);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ issueCount: 2, fileCount: 3, totalBytes: 12 });
-    expect(res.body.downloadUrl).toMatch(/^\/api\/downloads\/attachments-export\/[A-Za-z0-9_-]{43}$/);
+    expect(startRes.status).toBe(202);
+    expect(['preparing', 'running']).toContain(startRes.body.status);
+    expect(view).toMatchObject({ queryId: query.id, status: 'done', totalFiles: 3, doneFiles: 2, failedFiles: 1 });
+    expect(view.downloadUrl).toMatch(/^\/api\/downloads\/attachments-export\/[A-Za-z0-9_-]{43}$/);
     expect(fakeJiraClient.getAttachmentsWithReporter.mock.calls.map((c) => c[0])).toEqual(['PROJ-1', 'PROJ-3']);
-    expect(fakeJiraClient.getAttachmentStream).not.toHaveBeenCalled();
-  });
-
-  it('streams the zip without an Authorization header, skips files Jira refuses, and logs the export', async () => {
-    const admin = await createAdmin();
-    const query = await createSavedQuery({ name: 'Réclamations', jql: 'project = PROJ' });
-    stubJira();
-    const { downloadUrl } = (await prepare(query.id, admin.id)).body as { downloadUrl: string };
-
-    const res = await download(downloadUrl);
-
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toBe('application/zip');
-    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="pieces-jointes-reclamations-\d{4}-\d{2}-\d{2}\.zip"$/);
-    const files = readZip(res.body as Buffer);
-    expect(Object.keys(files)).toEqual(['PROJ-1/devis.pdf', 'PROJ-3/devis.pdf', 'manifest.csv']);
-    expect(files['manifest.csv']!.split('\r\n')).toEqual([
-      '\uFEFFcle_ticket;nom_fichier;chemin_dans_zip;taille_octets;type_mime;statut;erreur',
-      'PROJ-1;devis.pdf;PROJ-1/devis.pdf;4;text/plain;ok;',
-      'PROJ-1;photo.jpg;;4;text/plain;erreur;HTTP 404',
-      'PROJ-3;devis.pdf;PROJ-3/devis.pdf;4;text/plain;ok;',
-      '',
-    ]);
-    expect(fakePrisma.__state.auditLogs.at(-1)).toMatchObject({
-      action: 'EXPORT_ATTACHMENTS',
+    expect(fakePrisma.__state.auditLogs.find((l: { action: string }) => l.action === 'EXPORT_ATTACHMENTS')).toMatchObject({
       userId: admin.id,
       entityType: 'saved_query',
       entityKey: query.id,
-      details: { jql: 'project = PROJ', issueCount: 2, fileCount: 3 },
+      details: { jql: 'project = PROJ', issueCount: 2 },
     });
   });
 
-  it('refuses a download URL used a second time', async () => {
+  it('serves the finished zip without an Authorization header, with its size and resumable ranges', async () => {
     const admin = await createAdmin();
-    const query = await createSavedQuery({ name: 'R', jql: 'project = PROJ' });
-    stubJira();
-    const { downloadUrl } = (await prepare(query.id, admin.id)).body as { downloadUrl: string };
-    await download(downloadUrl);
+    const { view } = await startAndFinish(admin.id);
 
-    const again = await request(createApp()).get(downloadUrl);
-    expect(again.status).toBe(404);
+    const res = await binary(request(createApp()).get(view.downloadUrl));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/zip');
+    expect(res.headers['accept-ranges']).toBe('bytes');
+    expect(Number(res.headers['content-length'])).toBe((res.body as Buffer).length);
+    expect(res.headers['content-disposition']).toMatch(/filename="pieces-jointes-reclamations-\d{4}-\d{2}-\d{2}\.zip"/);
+    const files = readZip(res.body as Buffer);
+    expect(Object.keys(files)).toEqual(['PROJ-1/devis.pdf', 'PROJ-3/devis.pdf', 'manifest.csv']);
+    expect(files['manifest.csv']).toContain('PROJ-1;photo.jpg;;4;text/plain;erreur;HTTP 404');
+
+    // Reprise d'un téléchargement interrompu.
+    const partial = await binary(request(createApp()).get(view.downloadUrl).set('Range', 'bytes=10-'));
+    expect(partial.status).toBe(206);
+    expect((partial.body as Buffer).equals((res.body as Buffer).subarray(10))).toBe(true);
   });
 
-  it('refuses the download if the admin was deactivated in the meantime', async () => {
+  it('refuses a second export while one is running (409)', async () => {
     const admin = await createAdmin();
     const query = await createSavedQuery({ name: 'R', jql: 'project = PROJ' });
     stubJira();
-    const { downloadUrl } = (await prepare(query.id, admin.id)).body as { downloadUrl: string };
+    const pending: Array<() => void> = [];
+    fakeJiraClient.getAttachmentsWithReporter.mockImplementation(
+      () => new Promise((r) => pending.push(() => r({ attachments: [meta('1', 'a.txt')], reporterId: null }))),
+    );
+    const first = await start(query.id, admin.id);
+
+    const second = await start(query.id, admin.id);
+    expect(second.status).toBe(409);
+    await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+    pending.forEach((release) => release());
+    await jobCompletion(first.body.id as string);
+  });
+
+  it('deletes an export: its download URL stops working', async () => {
+    const admin = await createAdmin();
+    const { view } = await startAndFinish(admin.id);
+
+    const del = await request(createApp())
+      .delete(`/api/admin/attachments-exports/${view.id}`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN', admin.id)}`);
+    expect(del.status).toBe(204);
+    expect((await request(createApp()).get(view.downloadUrl)).status).toBe(404);
+    expect((await list(admin.id)).body.exports).toEqual([]);
+  });
+
+  it('refuses the download if the admin who launched it was deactivated', async () => {
+    const admin = await createAdmin();
+    const { view } = await startAndFinish(admin.id);
     await fakePrisma.user.update({ where: { id: admin.id }, data: { active: false } });
 
-    const res = await request(createApp()).get(downloadUrl);
-    expect(res.status).toBe(403);
-    expect(fakeJiraClient.getAttachmentStream).not.toHaveBeenCalled();
+    expect((await request(createApp()).get(view.downloadUrl)).status).toBe(403);
+  });
+
+  it('returns 404 for an unknown download token', async () => {
+    expect((await request(createApp()).get('/api/downloads/attachments-export/nope')).status).toBe(404);
   });
 
   it('refuses with 422 when the query matches more tickets than can be exported', async () => {
@@ -676,8 +722,7 @@ describe('attachments export (prepare + one-time download)', () => {
     const query = await createSavedQuery({ name: 'Big', jql: 'project = BIG' });
     fakeJiraClient.searchIssues.mockResolvedValue({ issues: [summary('BIG-1', 1)], total: 5000 });
 
-    const res = await prepare(query.id, admin.id);
-
+    const res = await start(query.id, admin.id);
     expect(res.status).toBe(422);
     expect(res.body.error).toMatch(/5000/);
   });
@@ -687,7 +732,6 @@ describe('attachments export (prepare + one-time download)', () => {
     const query = await createSavedQuery({ name: 'Empty', jql: 'project = E' });
     fakeJiraClient.searchIssues.mockResolvedValue({ issues: [summary('E-1', 0)], total: 1 });
 
-    const res = await prepare(query.id, admin.id);
-    expect(res.status).toBe(404);
+    expect((await start(query.id, admin.id)).status).toBe(404);
   });
 });

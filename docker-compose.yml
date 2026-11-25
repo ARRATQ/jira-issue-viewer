@@ -50,6 +50,11 @@ services:
       - ADMIN_NAME=${ADMIN_NAME:-Administrateur}
       - PORT=3001
       - NODE_ENV=${NODE_ENV:-production}
+      # Zips d'export des pièces jointes (plusieurs Go, conservés 24 h) : sur
+      # un volume dédié plutôt que dans la couche inscriptible du conteneur.
+      - EXPORT_DIR=/app/exports
+    volumes:
+      - jiv-exports:/app/exports
     networks:
       - jiv-net
     ports:
@@ -71,6 +76,7 @@ services:
 
 volumes:
   jiv-db-data-v2:
+  jiv-exports:
 
 networks:
   jiv-net:
