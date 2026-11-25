@@ -7,10 +7,11 @@ import { AdminQueries } from '../src/pages/admin/AdminQueries';
 
 vi.mock('../src/lib/apiClient', () => ({
   apiFetch: vi.fn(),
+  apiFetchBlob: vi.fn(),
   ApiError: class ApiError extends Error {},
 }));
 
-import { apiFetch } from '../src/lib/apiClient';
+import { apiFetch, apiFetchBlob, ApiError } from '../src/lib/apiClient';
 
 const EXISTING = {
   id: 'q1',
@@ -84,5 +85,34 @@ describe('AdminQueries', () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/admin/queries/q1', expect.objectContaining({ method: 'DELETE' })),
     );
+  });
+
+  it("downloads the query's attachments export as a zip", async () => {
+    vi.mocked(apiFetchBlob).mockResolvedValue(new Blob(['zip']));
+    const createObjectURL = vi.fn(() => 'blob:export');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    renderWithProviders(<AdminQueries />);
+    await screen.findByText('Export');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(apiFetchBlob).toHaveBeenCalledWith('/api/admin/queries/q1/attachments-export.zip');
+    const link = click.mock.contexts[0] as HTMLAnchorElement;
+    expect(link.download).toMatch(/^pieces-jointes-export-\d{4}-\d{2}-\d{2}\.zip$/);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:export');
+    click.mockRestore();
+  });
+
+  it('shows the server error when the export is refused', async () => {
+    vi.mocked(apiFetchBlob).mockRejectedValue(new ApiError('La requête renvoie 5000 tickets'));
+    renderWithProviders(<AdminQueries />);
+    await screen.findByText('Export');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter les pièces jointes de Export' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La requête renvoie 5000 tickets');
   });
 });

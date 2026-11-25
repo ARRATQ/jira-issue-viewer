@@ -1,12 +1,17 @@
 import { describe, expect, it, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
+import { Readable } from 'node:stream';
 import { createFakePrisma } from './helpers/fakePrisma';
+import { readZip } from './helpers/readZip';
 
 const fakePrisma = createFakePrisma();
 vi.mock('../src/lib/prisma', () => ({ prisma: fakePrisma }));
 
 const fakeJiraClient = {
   getFieldsMeta: vi.fn(),
+  searchIssues: vi.fn(),
+  getAttachmentsWithReporter: vi.fn(),
+  getAttachmentStream: vi.fn(),
 };
 
 vi.mock('../src/lib/jira', async (importOriginal) => {
@@ -32,6 +37,7 @@ beforeEach(() => {
 
 const { createApp } = await import('../src/app');
 const { signAccessToken } = await import('../src/lib/tokens');
+const { createQuery: createSavedQuery } = await import('../src/services/savedQueries');
 
 function tokenFor(role: 'ADMIN' | 'USER', sub = 'admin-1') {
   return signAccessToken({ sub, email: `${sub}@example.com`, role });
@@ -44,6 +50,7 @@ describe('role gating on /api/admin/*', () => {
     ['/api/admin/audit-logs', 'get'],
     ['/api/admin/queries', 'get'],
     ['/api/admin/jira-fields', 'get'],
+    ['/api/admin/queries/any/attachments-export.zip', 'get'],
   ] as const)('rejects USER role on %s (403)', async (path) => {
     const res = await request(createApp())
       .get(path)
@@ -517,5 +524,117 @@ describe('GET /api/admin/jira-fields', () => {
       { id: 'customfield_10020', name: 'Profil Export' },
       { id: 'summary', name: 'Summary' },
     ]);
+  });
+});
+
+describe('GET /api/admin/queries/:queryId/attachments-export.zip', () => {
+  function meta(id: string, filename: string) {
+    return {
+      id,
+      filename,
+      mimeType: 'text/plain',
+      size: 4,
+      contentUrl: `https://jira.example.com/att/${id}`,
+      authorId: 'someone',
+      authorName: null,
+    };
+  }
+
+  function summary(key: string, attachmentCount: number) {
+    return {
+      key,
+      summary: key,
+      status: null,
+      statusCategory: null,
+      issueType: null,
+      extraFields: {},
+      attachmentCounts: { all: attachmentCount, fromReporter: 0 },
+    };
+  }
+
+  async function getZip(path: string) {
+    return request(createApp())
+      .get(path)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`)
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+  }
+
+  it('returns 404 for an unknown query', async () => {
+    const res = await request(createApp())
+      .get('/api/admin/queries/nope/attachments-export.zip')
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('streams every attachment of the query in one folder per ticket, with a manifest, and logs the export', async () => {
+    const query = await createSavedQuery({ name: 'Réclamations', jql: 'project = PROJ' });
+    fakeJiraClient.searchIssues.mockResolvedValue({
+      issues: [summary('PROJ-1', 2), summary('PROJ-2', 0), summary('PROJ-3', 1)],
+      total: 3,
+    });
+    fakeJiraClient.getAttachmentsWithReporter.mockImplementation(async (key: string) => ({
+      attachments: key === 'PROJ-1' ? [meta('1', 'devis.pdf'), meta('2', 'photo.jpg')] : [meta('3', 'devis.pdf')],
+      // ADMIN : toutes les pièces jointes, même celles qui ne viennent pas du rapporteur.
+      reporterId: 'reporter',
+    }));
+    fakeJiraClient.getAttachmentStream.mockImplementation(async (url: string) => ({
+      body: Readable.toWeb(Readable.from([Buffer.from(`data:${url}`)])),
+      contentType: 'text/plain',
+      contentLength: null,
+    }));
+
+    const res = await getZip(`/api/admin/queries/${query.id}/attachments-export.zip`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/zip');
+    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="pieces-jointes-reclamations-\d{4}-\d{2}-\d{2}\.zip"$/);
+    const files = readZip(res.body as Buffer);
+    expect(Object.keys(files)).toEqual(['PROJ-1/devis.pdf', 'PROJ-1/photo.jpg', 'PROJ-3/devis.pdf', 'manifest.csv']);
+    expect(files['PROJ-3/devis.pdf']).toBe('data:https://jira.example.com/att/3');
+    expect(files['manifest.csv']!.split('\r\n')).toEqual([
+      '\uFEFFcle_ticket;nom_fichier;chemin_dans_zip;taille_octets;type_mime',
+      'PROJ-1;devis.pdf;PROJ-1/devis.pdf;4;text/plain',
+      'PROJ-1;photo.jpg;PROJ-1/photo.jpg;4;text/plain',
+      'PROJ-3;devis.pdf;PROJ-3/devis.pdf;4;text/plain',
+      '',
+    ]);
+    // Les tickets sans pièce jointe ne coûtent pas d'appel Jira supplémentaire.
+    expect(fakeJiraClient.getAttachmentsWithReporter.mock.calls.map((c) => c[0])).toEqual(['PROJ-1', 'PROJ-3']);
+    expect(fakePrisma.__state.auditLogs.at(-1)).toMatchObject({
+      action: 'EXPORT_ATTACHMENTS',
+      entityType: 'saved_query',
+      entityKey: query.id,
+      details: { jql: 'project = PROJ', issueCount: 2, fileCount: 3 },
+    });
+  });
+
+  it('refuses with 422 when the query matches more tickets than can be exported', async () => {
+    const query = await createSavedQuery({ name: 'Big', jql: 'project = BIG' });
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [summary('BIG-1', 1)], total: 5000 });
+
+    const res = await request(createApp())
+      .get(`/api/admin/queries/${query.id}/attachments-export.zip`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/5000/);
+    expect(fakeJiraClient.getAttachmentStream).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when no ticket of the query has an attachment, without logging', async () => {
+    const query = await createSavedQuery({ name: 'Empty', jql: 'project = E' });
+    fakeJiraClient.searchIssues.mockResolvedValue({ issues: [summary('E-1', 0)], total: 1 });
+
+    const res = await request(createApp())
+      .get(`/api/admin/queries/${query.id}/attachments-export.zip`)
+      .set('Authorization', `Bearer ${tokenFor('ADMIN')}`);
+
+    expect(res.status).toBe(404);
+    expect(fakePrisma.__state.auditLogs.filter((l: { action: string }) => l.action === 'EXPORT_ATTACHMENTS')).toHaveLength(0);
   });
 });
